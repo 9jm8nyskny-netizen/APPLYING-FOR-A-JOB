@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>المتقدمون للوظائف</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f3f5f8;
+    --surface:#ffffff;
+    --surface-2:#f8fafc;
+    --border:#e2e6ec;
+    --text:#1f2937;
+    --text-muted:#6b7280;
+    --primary:#1e3a5f;
+    --primary-dark:#152a45;
+    --accent:#0f8a8a;
+    --accent-dark:#0b6b6b;
+    --danger:#c0392b;
+    --danger-dark:#a5301f;
+    --shadow: 0 1px 3px rgba(16,24,40,0.06), 0 1px 2px rgba(16,24,40,0.04);
+    --shadow-md: 0 4px 14px rgba(16,24,40,0.08);
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#12161c; --surface:#1a1f27; --surface-2:#20262f; --border:#2b323d;
+      --text:#e8eaed; --text-muted:#9aa3b0; --primary:#3d6ea5; --primary-dark:#2e5680;
+      --accent:#1fb3ac; --accent-dark:#178f89; --danger:#e0685a; --danger-dark:#c94f42;
+      --shadow: 0 1px 3px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.3);
+      --shadow-md: 0 6px 18px rgba(0,0,0,0.4);
+    }
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:'Tajawal','Segoe UI',Tahoma,Arial,sans-serif;
+    min-height:100vh; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:880px;margin:0 auto;padding:20px 16px 80px;}
+  header.topbar{
+    display:flex;flex-direction:column;gap:14px;padding:22px 0 18px;
+    position:sticky;top:0;background:linear-gradient(var(--bg) 82%, transparent);z-index:5;
+  }
+  .title-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+  h1{font-size:1.55rem;font-weight:900;margin:0;color:var(--primary);letter-spacing:-0.3px;}
+  .subtitle{color:var(--text-muted);font-size:0.85rem;margin-top:2px;}
+  .btn{
+    border:none;border-radius:10px;padding:11px 18px;font-family:inherit;font-size:0.92rem;
+    font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+    transition:transform .05s ease, filter .15s ease, opacity .15s ease;white-space:nowrap;
+  }
+  .btn:active{transform:scale(0.97);}
+  .btn-primary{background:var(--accent);color:#fff;}
+  .btn-primary:hover{filter:brightness(1.06);}
+  .btn-secondary{background:var(--surface-2);color:var(--text);border:1px solid var(--border);}
+  .btn-secondary:hover{background:var(--border);}
+  .btn-danger{background:transparent;color:var(--danger);border:1px solid var(--danger);}
+  .btn-file{background:var(--primary);color:#fff;}
+  .btn-file:hover{filter:brightness(1.1);}
+  .btn:disabled{opacity:0.55;cursor:not-allowed;}
+  .btn-sm{padding:8px 13px;font-size:0.83rem;border-radius:8px;}
+  .search-box{position:relative;width:100%;}
+  .search-box input{
+    width:100%;padding:12px 44px 12px 14px;border-radius:11px;border:1px solid var(--border);
+    background:var(--surface);color:var(--text);font-family:inherit;font-size:0.95rem;outline:none;
+    transition:border-color .15s ease;
+  }
+  .search-box input:focus{border-color:var(--accent);}
+  .search-box .icon{position:absolute;top:50%;right:14px;transform:translateY(-50%);color:var(--text-muted);pointer-events:none;}
+  .list{display:flex;flex-direction:column;gap:12px;margin-top:6px;}
+  .card{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:16px 18px;box-shadow:var(--shadow);transition:box-shadow .15s ease;
+  }
+  .card:hover{box-shadow:var(--shadow-md);}
+  .card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;}
+  .applicant-name{font-size:1.12rem;font-weight:700;color:var(--text);margin:0 0 3px;}
+  .applicant-role{color:var(--accent-dark);font-weight:600;font-size:0.9rem;margin:0;}
+  .applicant-meta{color:var(--text-muted);font-size:0.82rem;margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 14px;}
+  .applicant-notes{color:var(--text-muted);font-size:0.85rem;margin-top:8px;line-height:1.5;white-space:pre-wrap;}
+  .card-actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center;}
+  .file-btn{
+    display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border-radius:8px;font-size:0.83rem;
+    font-weight:700;text-decoration:none;border:1px solid var(--border);color:var(--text);background:var(--surface-2);
+  }
+  .file-btn:hover{background:var(--border);}
+  .file-btn.missing{opacity:0.5;cursor:not-allowed;pointer-events:none;}
+  .icon-btn{
+    background:transparent;border:none;cursor:pointer;color:var(--text-muted);font-size:0.83rem;
+    padding:8px 10px;border-radius:8px;font-family:inherit;font-weight:600;
+  }
+  .icon-btn:hover{background:var(--surface-2);color:var(--text);}
+  .icon-btn.danger:hover{background:rgba(192,57,43,0.1);color:var(--danger);}
+  .spacer-actions{margin-inline-start:auto;display:flex;gap:4px;}
+  .empty-state{text-align:center;padding:70px 20px;color:var(--text-muted);}
+  .empty-state .big-icon{font-size:2.6rem;margin-bottom:10px;}
+  .empty-state h3{color:var(--text);margin:0 0 6px;}
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(15,20,26,0.5);display:none;align-items:flex-start;
+    justify-content:center;padding:24px 14px;overflow-y:auto;z-index:50;
+  }
+  .modal-overlay.open{display:flex;}
+  .modal{
+    background:var(--surface);border-radius:16px;width:100%;max-width:480px;padding:22px;
+    box-shadow:0 20px 50px rgba(0,0,0,0.25);margin-top:20px;
+  }
+  .modal h2{margin:0 0 4px;font-size:1.2rem;color:var(--primary);}
+  .modal .modal-sub{color:var(--text-muted);font-size:0.83rem;margin-bottom:16px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:0.85rem;font-weight:700;margin-bottom:6px;color:var(--text);}
+  .field .req{color:var(--danger);}
+  .field input[type=text], .field input[type=tel], .field textarea{
+    width:100%;padding:11px 12px;border-radius:9px;border:1px solid var(--border);
+    background:var(--surface-2);color:var(--text);font-family:inherit;font-size:0.92rem;outline:none;
+  }
+  .field input:focus, .field textarea:focus{border-color:var(--accent);}
+  .field textarea{resize:vertical;min-height:70px;}
+  .file-field{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .file-field input[type=file]{display:none;}
+  .file-name{font-size:0.8rem;color:var(--text-muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .modal-footer{display:flex;gap:10px;margin-top:20px;}
+  .modal-footer .btn{flex:1;justify-content:center;}
+  .toast{
+    position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(12px);
+    background:var(--primary-dark);color:#fff;padding:11px 20px;border-radius:10px;font-size:0.88rem;
+    box-shadow:var(--shadow-md);opacity:0;pointer-events:none;transition:opacity .2s ease, transform .2s ease;
+    z-index:100;max-width:90vw;text-align:center;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  .toast.error{background:var(--danger-dark);}
+  .banner{
+    background:#fff7e6;border:1px solid #f0c36d;color:#8a6115;border-radius:10px;
+    padding:10px 14px;font-size:0.83rem;margin-bottom:14px;
+  }
+  .progress-wrap{width:100%;background:var(--surface-2);border-radius:6px;height:6px;overflow:hidden;margin-top:6px;display:none;}
+  .progress-bar{height:100%;background:var(--accent);width:0%;transition:width .15s ease;}
+  .spinner{
+    width:16px;height:16px;border:2.5px solid rgba(255,255,255,0.4);border-top-color:#fff;
+    border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  ::selection{background:var(--accent);color:#fff;}
+  @media (max-width:520px){
+    h1{font-size:1.3rem;}
+    .card{padding:14px;}
+    .btn-primary.add-btn{width:100%;justify-content:center;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="topbar">
+    <div class="title-row">
+      <div>
+        <h1>المتقدمون للوظائف</h1>
+        <div class="subtitle" id="subtitleCount">جاري التحميل...</div>
+      </div>
+      <button class="btn btn-primary add-btn" id="openAddBtn">＋ إضافة متقدم</button>
+    </div>
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="ابحث بالاسم أو الوظيفة...">
+      <span class="icon">🔍</span>
+    </div>
+  </header>
+
+  <div id="bannerArea"></div>
+  <div class="list" id="list"></div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h2 id="modalTitle">إضافة متقدم جديد</h2>
+    <div class="modal-sub">أدخل بيانات المتقدم وملفاته أدناه</div>
+    <form id="applicantForm">
+      <div class="field">
+        <label>الاسم <span class="req">*</span></label>
+        <input type="text" id="fName" required placeholder="مثال: محمد أحمد">
+      </div>
+      <div class="field">
+        <label>رقم الجوال</label>
+        <input type="tel" id="fPhone" placeholder="05xxxxxxxx">
+      </div>
+      <div class="field">
+        <label>الوظيفة المتقدم عليها <span class="req">*</span></label>
+        <input type="text" id="fRole" required placeholder="مثال: مهندس تصميم داخلي">
+      </div>
+      <div class="field">
+        <label>📄 السيرة الذاتية (CV) — PDF</label>
+        <div class="file-field">
+          <button type="button" class="btn btn-file btn-sm" id="cvPickBtn">اختيار ملف</button>
+          <span class="file-name" id="cvFileName">لم يتم اختيار ملف</span>
+          <input type="file" id="fCv" accept="application/pdf,.pdf">
+        </div>
+        <div class="progress-wrap" id="cvProgressWrap"><div class="progress-bar" id="cvProgressBar"></div></div>
+      </div>
+      <div class="field">
+        <label>📁 ملف الأعمال (Portfolio) — PDF</label>
+        <div class="file-field">
+          <button type="button" class="btn btn-file btn-sm" id="pfPickBtn">اختيار ملف</button>
+          <span class="file-name" id="pfFileName">لم يتم اختيار ملف</span>
+          <input type="file" id="fPortfolio" accept="application/pdf,.pdf">
+        </div>
+        <div class="progress-wrap" id="pfProgressWrap"><div class="progress-bar" id="pfProgressBar"></div></div>
+      </div>
+      <div class="field">
+        <label>ملاحظات</label>
+        <textarea id="fNotes" placeholder="أي ملاحظات إضافية..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="cancelBtn">إلغاء</button>
+        <button type="submit" class="btn btn-primary" id="saveBtn">حفظ المتقدم</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+  // ============ Firebase setup ============
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import {
+    getFirestore, collection, addDoc, updateDoc, deleteDoc, doc,
+    query, orderBy, onSnapshot, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+  import {
+    getStorage, ref, uploadBytes, getDownloadURL, deleteObject
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
+
+  // TODO: عدّلي بيانات مشروعك هنا إذا لزم الأمر
+  const firebaseConfig = {
+    apiKey: "AIzaSyB_hSgJqz3REmSLVaa8XHC6z874xpwTags",
+    authDomain: "applying-for-a-job-bf297.firebaseapp.com",
+    databaseURL: "https://applying-for-a-job-bf297-default-rtdb.firebaseio.com",
+    projectId: "applying-for-a-job-bf297",
+    storageBucket: "applying-for-a-job-bf297.firebasestorage.app",
+    messagingSenderId: "247056217136",
+    appId: "1:247056217136:web:407a197e219db579c7a9f5",
+    measurementId: "G-1XG4K2JMJG"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const storage = getStorage(app);
+  const applicantsCol = collection(db, "applicants");
+
+  // ============ App state ============
+  let applicants = [];
+  let editingId = null;
+  let pendingCv = null;
+  let pendingPortfolio = null;
+
+  const listEl = document.getElementById('list');
+  const subtitleCount = document.getElementById('subtitleCount');
+  const bannerArea = document.getElementById('bannerArea');
+  const searchInput = document.getElementById('searchInput');
+  const modalOverlay = document.getElementById('modalOverlay');
+  const modalTitle = document.getElementById('modalTitle');
+  const applicantForm = document.getElementById('applicantForm');
+  const saveBtn = document.getElementById('saveBtn');
+  const toastEl = document.getElementById('toast');
+
+  function showToast(msg, isError){
+    toastEl.textContent = msg;
+    toastEl.className = 'toast show' + (isError ? ' error' : '');
+    setTimeout(()=>{ toastEl.className = 'toast'; }, 2600);
+  }
+
+  function escapeHtml(s){
+    return String(s || '').replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function fmtDate(ts){
+    try{
+      const d = ts instanceof Date ? ts : new Date(ts);
+      return d.toLocaleDateString('ar-SA', {year:'numeric', month:'long', day:'numeric'});
+    }catch(e){ return ''; }
+  }
+
+  function render(){
+    const q = (searchInput.value || '').trim().toLowerCase();
+    let items = applicants.slice();
+    if(q){
+      items = items.filter(a =>
+        (a.name||'').toLowerCase().includes(q) ||
+        (a.role||'').toLowerCase().includes(q)
+      );
+    }
+
+    subtitleCount.textContent = applicants.length
+      ? `${applicants.length} متقدم${applicants.length>1?'ين':''} إجمالاً`
+      : 'لا يوجد متقدمون بعد';
+
+    if(items.length === 0){
+      listEl.innerHTML = `
+        <div class="empty-state">
+          <div class="big-icon">🗂️</div>
+          <h3>${applicants.length ? 'لا توجد نتائج مطابقة للبحث' : 'لا يوجد متقدمون بعد'}</h3>
+          <div>${applicants.length ? 'جرّبي كلمة بحث أخرى' : 'اضغطي على "إضافة متقدم" لإضافة أول متقدم'}</div>
+        </div>`;
+      return;
+    }
+
+    listEl.innerHTML = items.map(a => {
+      const cvUrl = a.cvUrl || null;
+      const pfUrl = a.portfolioUrl || null;
+      const createdDate = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate() : (a.createdAt || null);
+      return `
+      <div class="card" data-id="${a.id}">
+        <div class="card-top">
+          <div>
+            <p class="applicant-name">${escapeHtml(a.name)}</p>
+            <p class="applicant-role">${escapeHtml(a.role)}</p>
+            <div class="applicant-meta">
+              ${a.phone ? `<span>📱 ${escapeHtml(a.phone)}</span>` : ''}
+              ${createdDate ? `<span>🗓️ ${fmtDate(createdDate)}</span>` : ''}
+            </div>
+          </div>
+        </div>
+        ${a.notes ? `<div class="applicant-notes">${escapeHtml(a.notes)}</div>` : ''}
+        <div class="card-actions">
+          <a class="file-btn ${cvUrl ? '' : 'missing'}" href="${cvUrl||'#'}" target="_blank" rel="noopener">📄 فتح السيرة الذاتية</a>
+          <a class="file-btn ${pfUrl ? '' : 'missing'}" href="${pfUrl||'#'}" target="_blank" rel="noopener">📁 فتح الأعمال</a>
+          <div class="spacer-actions">
+            <button class="icon-btn edit-btn" data-id="${a.id}">✏️ تعديل</button>
+            <button class="icon-btn danger delete-btn" data-id="${a.id}">🗑️ حذف</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    listEl.querySelectorAll('.edit-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=> openEdit(btn.dataset.id));
+    });
+    listEl.querySelectorAll('.delete-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=> confirmDelete(btn.dataset.id));
+    });
+  }
+
+  function resetForm(){
+    editingId = null;
+    pendingCv = null;
+    pendingPortfolio = null;
+    applicantForm.reset();
+    document.getElementById('cvFileName').textContent = 'لم يتم اختيار ملف';
+    document.getElementById('pfFileName').textContent = 'لم يتم اختيار ملف';
+    document.getElementById('cvProgressWrap').style.display = 'none';
+    document.getElementById('pfProgressWrap').style.display = 'none';
+    modalTitle.textContent = 'إضافة متقدم جديد';
+  }
+
+  function openAdd(){
+    resetForm();
+    modalOverlay.classList.add('open');
+  }
+
+  function openEdit(id){
+    const a = applicants.find(x => x.id === id);
+    if(!a) return;
+    resetForm();
+    editingId = id;
+    modalTitle.textContent = 'تعديل بيانات المتقدم';
+    document.getElementById('fName').value = a.name || '';
+    document.getElementById('fPhone').value = a.phone || '';
+    document.getElementById('fRole').value = a.role || '';
+    document.getElementById('fNotes').value = a.notes || '';
+    if(a.cvUrl) document.getElementById('cvFileName').textContent = 'يوجد ملف محفوظ (اختر ملفًا جديدًا للاستبدال)';
+    if(a.portfolioUrl) document.getElementById('pfFileName').textContent = 'يوجد ملف محفوظ (اختر ملفًا جديدًا للاستبدال)';
+    modalOverlay.classList.add('open');
+  }
+
+  function closeModal(){
+    modalOverlay.classList.remove('open');
+  }
+
+  async function confirmDelete(id){
+    const a = applicants.find(x => x.id === id);
+    if(!a) return;
+    if(!confirm(`هل تريدين حذف بيانات "${a.name}"؟ لا يمكن التراجع عن هذا الإجراء.`)) return;
+    try{
+      // Best-effort: remove stored files too
+      if(a.cvPath){ try{ await deleteObject(ref(storage, a.cvPath)); }catch(e){} }
+      if(a.portfolioPath){ try{ await deleteObject(ref(storage, a.portfolioPath)); }catch(e){} }
+      await deleteDoc(doc(db, "applicants", id));
+      showToast('تم حذف المتقدم');
+    }catch(err){
+      console.error(err);
+      showToast('تعذر الحذف، حاولي مرة أخرى', true);
+    }
+  }
+
+  document.getElementById('openAddBtn').addEventListener('click', openAdd);
+  document.getElementById('cancelBtn').addEventListener('click', closeModal);
+  modalOverlay.addEventListener('click', (e)=>{ if(e.target === modalOverlay) closeModal(); });
+
+  document.getElementById('cvPickBtn').addEventListener('click', ()=> document.getElementById('fCv').click());
+  document.getElementById('pfPickBtn').addEventListener('click', ()=> document.getElementById('fPortfolio').click());
+
+  document.getElementById('fCv').addEventListener('change', (e)=>{
+    const f = e.target.files[0];
+    if(f){ pendingCv = f; document.getElementById('cvFileName').textContent = f.name; }
+  });
+  document.getElementById('fPortfolio').addEventListener('change', (e)=>{
+    const f = e.target.files[0];
+    if(f){ pendingPortfolio = f; document.getElementById('pfFileName').textContent = f.name; }
+  });
+
+  searchInput.addEventListener('input', render);
+
+  async function uploadPdf(file, folder, progressBarEl, progressWrapEl){
+    if(file.type && file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')){
+      throw new Error('not_pdf');
+    }
+    progressWrapEl.style.display = 'block';
+    progressBarEl.style.width = '30%';
+    const path = `${folder}/${Date.now()}_${file.name}`;
+    const fileRef = ref(storage, path);
+    await uploadBytes(fileRef, file);
+    progressBarEl.style.width = '80%';
+    const url = await getDownloadURL(fileRef);
+    progressBarEl.style.width = '100%';
+    setTimeout(()=>{ progressWrapEl.style.display = 'none'; progressBarEl.style.width = '0%'; }, 500);
+    return { url, path };
+  }
+
+  applicantForm.addEventListener('submit', async function(e){
+    e.preventDefault();
+    const name = document.getElementById('fName').value.trim();
+    const role = document.getElementById('fRole').value.trim();
+    const phone = document.getElementById('fPhone').value.trim();
+    const notes = document.getElementById('fNotes').value.trim();
+
+    if(!name || !role){
+      showToast('يرجى إدخال الاسم والوظيفة', true);
+      return;
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<span class="spinner"></span> جارٍ الحفظ...';
+
+    try{
+      let cvData = null;
+      let pfData = null;
+
+      if(pendingCv){
+        cvData = await uploadPdf(pendingCv, 'cvs', document.getElementById('cvProgressBar'), document.getElementById('cvProgressWrap'));
+      }
+      if(pendingPortfolio){
+        pfData = await uploadPdf(pendingPortfolio, 'portfolios', document.getElementById('pfProgressBar'), document.getElementById('pfProgressWrap'));
+      }
+
+      if(editingId){
+        const existing = applicants.find(x => x.id === editingId);
+        const data = {
+          name, role, phone, notes,
+          cvUrl: cvData ? cvData.url : (existing ? existing.cvUrl || null : null),
+          cvPath: cvData ? cvData.path : (existing ? existing.cvPath || null : null),
+          portfolioUrl: pfData ? pfData.url : (existing ? existing.portfolioUrl || null : null),
+          portfolioPath: pfData ? pfData.path : (existing ? existing.portfolioPath || null : null),
+        };
+        await updateDoc(doc(db, "applicants", editingId), data);
+        showToast('تم تحديث بيانات المتقدم');
+      } else {
+        const data = {
+          name, role, phone, notes,
+          cvUrl: cvData ? cvData.url : null,
+          cvPath: cvData ? cvData.path : null,
+          portfolioUrl: pfData ? pfData.url : null,
+          portfolioPath: pfData ? pfData.path : null,
+          createdAt: serverTimestamp(),
+        };
+        await addDoc(applicantsCol, data);
+        showToast('تمت إضافة المتقدم بنجاح');
+      }
+      closeModal();
+    }catch(err){
+      console.error(err);
+      if(err && err.message === 'not_pdf'){
+        showToast('يرجى رفع ملفات بصيغة PDF فقط', true);
+      } else {
+        showToast('حدث خطأ أثناء الحفظ، تحققي من إعدادات Firebase وحاولي مرة أخرى', true);
+      }
+    }finally{
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'حفظ المتقدم';
+    }
+  });
+
+  function init(){
+    try{
+      const q = query(applicantsCol, orderBy('createdAt', 'desc'));
+      onSnapshot(q, (snap) => {
+        applicants = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
+        render();
+      }, (err) => {
+        console.error('firestore error', err);
+        bannerArea.innerHTML = `<div class="banner">⚠️ تعذر الاتصال بقاعدة بيانات Firebase. تأكدي من تفعيل Firestore وقواعد الأمان (Security Rules) في مشروعك.</div>`;
+      });
+    }catch(err){
+      console.error(err);
+      bannerArea.innerHTML = `<div class="banner">⚠️ حدث خطأ أثناء الاتصال بـ Firebase. تحققي من إعدادات المشروع.</div>`;
+    }
+  }
+
+  render();
+  init();
+</script>
+</body>
+</html>
