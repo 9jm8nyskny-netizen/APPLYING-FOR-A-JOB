@@ -79,6 +79,15 @@
   }
   .card:hover{box-shadow:var(--shadow-md);}
   .card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;}
+  .card-top-main{display:flex;align-items:center;gap:12px;min-width:0;}
+  .avatar{
+    width:52px;height:52px;border-radius:50%;object-fit:cover;flex-shrink:0;
+    border:1px solid var(--border);background:var(--surface-2);
+  }
+  .avatar-placeholder{
+    width:52px;height:52px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    background:var(--primary);color:#fff;font-weight:700;font-size:1.05rem;
+  }
   .applicant-name{font-size:1.12rem;font-weight:700;color:var(--text);margin:0 0 3px;}
   .applicant-role{color:var(--accent-dark);font-weight:600;font-size:0.9rem;margin:0;}
   .applicant-meta{color:var(--text-muted);font-size:0.82rem;margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 14px;}
@@ -123,6 +132,15 @@
   .file-field{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
   .file-field input[type=file]{display:none;}
   .file-name{font-size:0.8rem;color:var(--text-muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .photo-field{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+  .photo-preview{
+    width:64px;height:64px;border-radius:50%;object-fit:cover;border:1px solid var(--border);
+    background:var(--surface-2);flex-shrink:0;
+  }
+  .photo-preview-placeholder{
+    width:64px;height:64px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+    background:var(--surface-2);border:1px dashed var(--border);color:var(--text-muted);font-size:1.4rem;
+  }
   .modal-footer{display:flex;gap:10px;margin-top:20px;}
   .modal-footer .btn{flex:1;justify-content:center;}
   .toast{
@@ -178,6 +196,19 @@
     <div class="modal-sub">أدخل بيانات المتقدم وملفاته أدناه</div>
     <form id="applicantForm">
       <div class="field">
+        <label>🖼️ صورة المتقدم</label>
+        <div class="photo-field">
+          <img id="photoPreviewImg" class="photo-preview" style="display:none;" alt="صورة المتقدم">
+          <div id="photoPreviewPlaceholder" class="photo-preview-placeholder">🙂</div>
+          <div>
+            <button type="button" class="btn btn-file btn-sm" id="photoPickBtn">اختيار صورة</button>
+            <div class="file-name" id="photoFileName" style="margin-top:6px;">لم يتم اختيار صورة</div>
+          </div>
+        </div>
+        <input type="file" id="fPhoto" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" style="display:none;">
+        <div class="progress-wrap" id="photoProgressWrap"><div class="progress-bar" id="photoProgressBar"></div></div>
+      </div>
+      <div class="field">
         <label>الاسم <span class="req">*</span></label>
         <input type="text" id="fName" required placeholder="مثال: محمد أحمد">
       </div>
@@ -229,7 +260,7 @@
     query, orderBy, onSnapshot, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
   import {
-    getStorage, ref, uploadBytes, getDownloadURL, deleteObject
+    getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
 
   // TODO: عدّلي بيانات مشروعك هنا إذا لزم الأمر
@@ -254,6 +285,7 @@
   let editingId = null;
   let pendingCv = null;
   let pendingPortfolio = null;
+  let pendingPhoto = null;
 
   const listEl = document.getElementById('list');
   const subtitleCount = document.getElementById('subtitleCount');
@@ -312,15 +344,22 @@
       const cvUrl = a.cvUrl || null;
       const pfUrl = a.portfolioUrl || null;
       const createdDate = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate() : (a.createdAt || null);
+      const initials = (a.name || '').trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
+      const avatarHtml = a.photoUrl
+        ? `<img class="avatar" src="${a.photoUrl}" alt="${escapeHtml(a.name)}">`
+        : `<div class="avatar-placeholder">${escapeHtml(initials) || '؟'}</div>`;
       return `
       <div class="card" data-id="${a.id}">
         <div class="card-top">
-          <div>
-            <p class="applicant-name">${escapeHtml(a.name)}</p>
-            <p class="applicant-role">${escapeHtml(a.role)}</p>
-            <div class="applicant-meta">
-              ${a.phone ? `<span>📱 ${escapeHtml(a.phone)}</span>` : ''}
-              ${createdDate ? `<span>🗓️ ${fmtDate(createdDate)}</span>` : ''}
+          <div class="card-top-main">
+            ${avatarHtml}
+            <div>
+              <p class="applicant-name">${escapeHtml(a.name)}</p>
+              <p class="applicant-role">${escapeHtml(a.role)}</p>
+              <div class="applicant-meta">
+                ${a.phone ? `<span>📱 ${escapeHtml(a.phone)}</span>` : ''}
+                ${createdDate ? `<span>🗓️ ${fmtDate(createdDate)}</span>` : ''}
+              </div>
             </div>
           </div>
         </div>
@@ -348,11 +387,17 @@
     editingId = null;
     pendingCv = null;
     pendingPortfolio = null;
+    pendingPhoto = null;
     applicantForm.reset();
     document.getElementById('cvFileName').textContent = 'لم يتم اختيار ملف';
     document.getElementById('pfFileName').textContent = 'لم يتم اختيار ملف';
+    document.getElementById('photoFileName').textContent = 'لم يتم اختيار صورة';
     document.getElementById('cvProgressWrap').style.display = 'none';
     document.getElementById('pfProgressWrap').style.display = 'none';
+    document.getElementById('photoProgressWrap').style.display = 'none';
+    document.getElementById('photoPreviewImg').style.display = 'none';
+    document.getElementById('photoPreviewImg').src = '';
+    document.getElementById('photoPreviewPlaceholder').style.display = 'flex';
     modalTitle.textContent = 'إضافة متقدم جديد';
   }
 
@@ -373,6 +418,12 @@
     document.getElementById('fNotes').value = a.notes || '';
     if(a.cvUrl) document.getElementById('cvFileName').textContent = 'يوجد ملف محفوظ (اختر ملفًا جديدًا للاستبدال)';
     if(a.portfolioUrl) document.getElementById('pfFileName').textContent = 'يوجد ملف محفوظ (اختر ملفًا جديدًا للاستبدال)';
+    if(a.photoUrl){
+      document.getElementById('photoPreviewImg').src = a.photoUrl;
+      document.getElementById('photoPreviewImg').style.display = 'block';
+      document.getElementById('photoPreviewPlaceholder').style.display = 'none';
+      document.getElementById('photoFileName').textContent = 'توجد صورة محفوظة (اختر صورة جديدة للاستبدال)';
+    }
     modalOverlay.classList.add('open');
   }
 
@@ -388,6 +439,7 @@
       // Best-effort: remove stored files too
       if(a.cvPath){ try{ await deleteObject(ref(storage, a.cvPath)); }catch(e){} }
       if(a.portfolioPath){ try{ await deleteObject(ref(storage, a.portfolioPath)); }catch(e){} }
+      if(a.photoPath){ try{ await deleteObject(ref(storage, a.photoPath)); }catch(e){} }
       await deleteDoc(doc(db, "applicants", id));
       showToast('تم حذف المتقدم');
     }catch(err){
@@ -412,22 +464,75 @@
     if(f){ pendingPortfolio = f; document.getElementById('pfFileName').textContent = f.name; }
   });
 
+  document.getElementById('photoPickBtn').addEventListener('click', ()=> document.getElementById('fPhoto').click());
+  document.getElementById('fPhoto').addEventListener('change', (e)=>{
+    const f = e.target.files[0];
+    if(!f) return;
+    if(!f.type.startsWith('image/')){
+      showToast('يرجى اختيار ملف صورة (PNG أو JPG)', true);
+      e.target.value = '';
+      return;
+    }
+    pendingPhoto = f;
+    document.getElementById('photoFileName').textContent = f.name;
+    const reader = new FileReader();
+    reader.onload = function(ev){
+      const img = document.getElementById('photoPreviewImg');
+      img.src = ev.target.result;
+      img.style.display = 'block';
+      document.getElementById('photoPreviewPlaceholder').style.display = 'none';
+    };
+    reader.readAsDataURL(f);
+  });
+
   searchInput.addEventListener('input', render);
+
+  // Wraps a promise with a timeout so the UI never hangs silently.
+  function withTimeout(promise, ms, timeoutMsg){
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(timeoutMsg || 'timeout')), ms);
+      promise.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+    });
+  }
+
+  function uploadWithProgress(file, path, progressBarEl, progressWrapEl){
+    return withTimeout(new Promise((resolve, reject) => {
+      progressWrapEl.style.display = 'block';
+      progressBarEl.style.width = '2%';
+      const fileRef = ref(storage, path);
+      const task = uploadBytesResumable(fileRef, file);
+      task.on('state_changed',
+        (snap) => {
+          const pct = Math.max(2, Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
+          progressBarEl.style.width = pct + '%';
+        },
+        (err) => reject(err),
+        async () => {
+          try{
+            const url = await getDownloadURL(task.snapshot.ref);
+            progressBarEl.style.width = '100%';
+            setTimeout(()=>{ progressWrapEl.style.display = 'none'; progressBarEl.style.width = '0%'; }, 400);
+            resolve({ url, path });
+          }catch(e){ reject(e); }
+        }
+      );
+    }), 30000, 'upload_timeout');
+  }
 
   async function uploadPdf(file, folder, progressBarEl, progressWrapEl){
     if(file.type && file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')){
       throw new Error('not_pdf');
     }
-    progressWrapEl.style.display = 'block';
-    progressBarEl.style.width = '30%';
     const path = `${folder}/${Date.now()}_${file.name}`;
-    const fileRef = ref(storage, path);
-    await uploadBytes(fileRef, file);
-    progressBarEl.style.width = '80%';
-    const url = await getDownloadURL(fileRef);
-    progressBarEl.style.width = '100%';
-    setTimeout(()=>{ progressWrapEl.style.display = 'none'; progressBarEl.style.width = '0%'; }, 500);
-    return { url, path };
+    return uploadWithProgress(file, path, progressBarEl, progressWrapEl);
+  }
+
+  async function uploadImage(file, folder, progressBarEl, progressWrapEl){
+    if(!file.type || !file.type.startsWith('image/')){
+      throw new Error('not_image');
+    }
+    const path = `${folder}/${Date.now()}_${file.name}`;
+    return uploadWithProgress(file, path, progressBarEl, progressWrapEl);
   }
 
   applicantForm.addEventListener('submit', async function(e){
@@ -448,13 +553,30 @@
     try{
       let cvData = null;
       let pfData = null;
+      let photoData = null;
 
+      const uploadJobs = [];
       if(pendingCv){
-        cvData = await uploadPdf(pendingCv, 'cvs', document.getElementById('cvProgressBar'), document.getElementById('cvProgressWrap'));
+        uploadJobs.push(
+          uploadPdf(pendingCv, 'cvs', document.getElementById('cvProgressBar'), document.getElementById('cvProgressWrap'))
+            .then(r => { cvData = r; })
+        );
       }
       if(pendingPortfolio){
-        pfData = await uploadPdf(pendingPortfolio, 'portfolios', document.getElementById('pfProgressBar'), document.getElementById('pfProgressWrap'));
+        uploadJobs.push(
+          uploadPdf(pendingPortfolio, 'portfolios', document.getElementById('pfProgressBar'), document.getElementById('pfProgressWrap'))
+            .then(r => { pfData = r; })
+        );
       }
+      if(pendingPhoto){
+        uploadJobs.push(
+          uploadImage(pendingPhoto, 'photos', document.getElementById('photoProgressBar'), document.getElementById('photoProgressWrap'))
+            .then(r => { photoData = r; })
+        );
+      }
+      // Upload CV, portfolio, and photo at the same time instead of one after another —
+      // this alone roughly cuts total wait time by up to 3x.
+      await Promise.all(uploadJobs);
 
       if(editingId){
         const existing = applicants.find(x => x.id === editingId);
@@ -464,6 +586,8 @@
           cvPath: cvData ? cvData.path : (existing ? existing.cvPath || null : null),
           portfolioUrl: pfData ? pfData.url : (existing ? existing.portfolioUrl || null : null),
           portfolioPath: pfData ? pfData.path : (existing ? existing.portfolioPath || null : null),
+          photoUrl: photoData ? photoData.url : (existing ? existing.photoUrl || null : null),
+          photoPath: photoData ? photoData.path : (existing ? existing.photoPath || null : null),
         };
         await updateDoc(doc(db, "applicants", editingId), data);
         showToast('تم تحديث بيانات المتقدم');
@@ -474,6 +598,8 @@
           cvPath: cvData ? cvData.path : null,
           portfolioUrl: pfData ? pfData.url : null,
           portfolioPath: pfData ? pfData.path : null,
+          photoUrl: photoData ? photoData.url : null,
+          photoPath: photoData ? photoData.path : null,
           createdAt: serverTimestamp(),
         };
         await addDoc(applicantsCol, data);
@@ -484,6 +610,12 @@
       console.error(err);
       if(err && err.message === 'not_pdf'){
         showToast('يرجى رفع ملفات بصيغة PDF فقط', true);
+      } else if(err && err.message === 'not_image'){
+        showToast('يرجى رفع صورة صالحة (PNG أو JPG)', true);
+      } else if(err && err.message === 'upload_timeout'){
+        showToast('استغرق الرفع وقتًا طويلاً جدًا — تأكدي من تفعيل Storage وقواعد الأمان في Firebase', true);
+      } else if(err && err.code === 'storage/unauthorized'){
+        showToast('تم رفض الرفع — تحققي من قواعد أمان Storage في Firebase', true);
       } else {
         showToast('حدث خطأ أثناء الحفظ، تحققي من إعدادات Firebase وحاولي مرة أخرى', true);
       }
