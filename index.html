@@ -294,6 +294,67 @@
     catch(e){ return false; }
   }
 
+  // Google Drive "view" share links (drive.google.com/file/d/ID/view, ?id=ID, /open?id=ID)
+  // are HTML pages, not raw images, so <img src> can't load them directly. This extracts the
+  // file id and builds several known direct-image URL formats, tried in order — Drive
+  // sometimes blocks one hotlink style but not another, even for public "anyone with the link" files.
+  function getDriveFileId(url){
+    try{
+      const u = new URL(url);
+      if(!u.hostname.includes('drive.google.com') && !u.hostname.includes('googleusercontent.com')) return null;
+      const m = u.pathname.match(/\/file\/d\/([^/]+)/);
+      if(m) return m[1];
+      if(u.searchParams.get('id')) return u.searchParams.get('id');
+      return null;
+    }catch(e){ return null; }
+  }
+
+  function buildImageCandidates(url){
+    if(!url) return [];
+    const fileId = getDriveFileId(url);
+    if(fileId){
+      return [
+        `https://lh3.googleusercontent.com/d/${fileId}=w400`,
+        `https://drive.google.com/thumbnail?id=${fileId}&sz=w400`,
+        `https://drive.google.com/uc?export=view&id=${fileId}`
+      ];
+    }
+    return [url];
+  }
+
+  // Called from an <img onerror="..."> to advance to the next candidate URL,
+  // and finally to a placeholder if every candidate fails.
+  window.__avatarImgFallback = function(img){
+    let candidates = [];
+    try{ candidates = JSON.parse(img.getAttribute('data-candidates') || '[]'); }catch(e){}
+    let idx = parseInt(img.getAttribute('data-idx') || '0', 10) + 1;
+    if(idx < candidates.length){
+      img.setAttribute('data-idx', String(idx));
+      img.src = candidates[idx];
+    } else {
+      const initials = img.getAttribute('data-fallback-initials') || '؟';
+      const div = document.createElement('div');
+      div.className = 'avatar-placeholder';
+      div.textContent = initials;
+      img.replaceWith(div);
+    }
+  };
+
+  // Same fallback chain, for the modal's live photo preview (toggles the placeholder div instead of removing the img).
+  window.__modalPhotoFallback = function(img){
+    let candidates = [];
+    try{ candidates = JSON.parse(img.getAttribute('data-candidates') || '[]'); }catch(e){}
+    let idx = parseInt(img.getAttribute('data-idx') || '0', 10) + 1;
+    if(idx < candidates.length){
+      img.setAttribute('data-idx', String(idx));
+      img.src = candidates[idx];
+    } else {
+      img.style.display = 'none';
+      const ph = document.getElementById('photoPreviewPlaceholder');
+      if(ph) ph.style.display = 'flex';
+    }
+  };
+
   function fmtDate(ts){
     try{
       const d = ts instanceof Date ? ts : new Date(ts);
@@ -330,9 +391,15 @@
       const pfUrl = a.portfolioUrl || null;
       const createdDate = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate() : (a.createdAt || null);
       const initials = (a.name || '').trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
-      const avatarHtml = a.photoUrl
-        ? `<img class="avatar" src="${a.photoUrl}" alt="${escapeHtml(a.name)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'avatar-placeholder',textContent:'${escapeHtml(initials) || '؟'}'}))">`
-        : `<div class="avatar-placeholder">${escapeHtml(initials) || '؟'}</div>`;
+      let avatarHtml;
+      if(a.photoUrl){
+        const candidates = buildImageCandidates(a.photoUrl);
+        const candStr = escapeHtml(JSON.stringify(candidates));
+        const initialsAttr = escapeHtml(initials) || '؟';
+        avatarHtml = `<img class="avatar" src="${candidates[0]}" data-candidates="${candStr}" data-idx="0" data-fallback-initials="${initialsAttr}" alt="${escapeHtml(a.name)}" onerror="window.__avatarImgFallback(this)">`;
+      } else {
+        avatarHtml = `<div class="avatar-placeholder">${escapeHtml(initials) || '؟'}</div>`;
+      }
       return `
       <div class="card" data-id="${a.id}">
         <div class="card-top">
@@ -371,8 +438,12 @@
   function resetForm(){
     editingId = null;
     applicantForm.reset();
-    document.getElementById('photoPreviewImg').style.display = 'none';
-    document.getElementById('photoPreviewImg').src = '';
+    const img = document.getElementById('photoPreviewImg');
+    img.style.display = 'none';
+    img.src = '';
+    img.onerror = null;
+    img.removeAttribute('data-candidates');
+    img.removeAttribute('data-idx');
     document.getElementById('photoPreviewPlaceholder').style.display = 'flex';
     modalTitle.textContent = 'إضافة متقدم جديد';
   }
@@ -396,8 +467,13 @@
     document.getElementById('fPortfolioUrl').value = a.portfolioUrl || '';
     document.getElementById('fPhotoUrl').value = a.photoUrl || '';
     if(a.photoUrl){
-      document.getElementById('photoPreviewImg').src = a.photoUrl;
-      document.getElementById('photoPreviewImg').style.display = 'block';
+      const candidates = buildImageCandidates(a.photoUrl);
+      const img = document.getElementById('photoPreviewImg');
+      img.setAttribute('data-candidates', JSON.stringify(candidates));
+      img.setAttribute('data-idx', '0');
+      img.onerror = function(){ window.__modalPhotoFallback(img); };
+      img.src = candidates[0];
+      img.style.display = 'block';
       document.getElementById('photoPreviewPlaceholder').style.display = 'none';
     }
     modalOverlay.classList.add('open');
@@ -430,10 +506,13 @@
     const img = document.getElementById('photoPreviewImg');
     const placeholder = document.getElementById('photoPreviewPlaceholder');
     if(v && isValidUrl(v)){
-      img.src = v;
+      const candidates = buildImageCandidates(v);
+      img.setAttribute('data-candidates', JSON.stringify(candidates));
+      img.setAttribute('data-idx', '0');
+      img.onerror = function(){ window.__modalPhotoFallback(img); };
+      img.src = candidates[0];
       img.style.display = 'block';
       placeholder.style.display = 'none';
-      img.onerror = () => { img.style.display = 'none'; placeholder.style.display = 'flex'; };
     } else {
       img.style.display = 'none';
       placeholder.style.display = 'flex';
