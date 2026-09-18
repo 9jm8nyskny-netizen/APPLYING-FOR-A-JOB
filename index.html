@@ -88,6 +88,22 @@
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]) .salary-line{background:#0d2b22;color:#34d399;}
   }
+  .interview-line{
+    display:inline-flex;align-items:center;gap:4px;font-size:0.8rem;font-weight:700;
+    color:var(--primary);background:var(--surface-2);border:1px solid var(--border);
+    padding:4px 10px;border-radius:7px;margin-inline-start:8px;
+  }
+  .interview-options{display:flex;flex-direction:column;gap:8px;}
+  .interview-opt{
+    padding:13px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface-2);
+    color:var(--text);font-family:inherit;font-size:0.9rem;font-weight:700;cursor:pointer;text-align:right;
+    transition:border-color .15s ease, background .15s ease, color .15s ease;display:flex;align-items:center;gap:8px;
+  }
+  .interview-opt:hover{border-color:var(--accent);}
+  .interview-opt.selected{border-color:#059669;background:#ecfdf5;color:#047857;}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]) .interview-opt.selected{background:#0d2b22;color:#34d399;}
+  }
   .approve-btn{
     display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border-radius:8px;font-size:0.83rem;
     font-weight:700;border:1px solid var(--border);color:var(--text-muted);background:var(--surface-2);cursor:pointer;font-family:inherit;
@@ -291,6 +307,13 @@
       <input type="text" id="approveSalaryInput" placeholder="مثال: 4000 ريال">
       <span class="hint">هذا هو الرقم الذي سيُطلع عليه فريق شؤون الموظفين عند التواصل مع المتقدم</span>
     </div>
+    <div class="field">
+      <label>📅 نوع المقابلة</label>
+      <div class="interview-options" id="interviewOptions">
+        <button type="button" class="interview-opt" data-type="remote">📹 عن بُعد عبر تطبيق زوم</button>
+        <button type="button" class="interview-opt" data-type="onsite">🏢 مقابلة فعلية (حضورية)</button>
+      </div>
+    </div>
     <div class="modal-footer">
       <button type="button" class="btn btn-secondary" id="approveCancelBtn">إلغاء</button>
       <button type="button" class="btn btn-primary" id="approveConfirmBtn">✅ تأكيد</button>
@@ -348,7 +371,9 @@
   const approveConfirmBtn = document.getElementById('approveConfirmBtn');
   const approveCancelBtn = document.getElementById('approveCancelBtn');
   const approveRemoveBtn = document.getElementById('approveRemoveBtn');
+  const interviewOptions = document.getElementById('interviewOptions');
   let approveTargetId = null;
+  let selectedInterviewType = null;
 
   function showToast(msg, isError){
     toastEl.textContent = msg;
@@ -471,11 +496,22 @@
     });
   });
 
+  function setInterviewType(type){
+    selectedInterviewType = type;
+    interviewOptions.querySelectorAll('.interview-opt').forEach(btn=>{
+      btn.classList.toggle('selected', btn.dataset.type === type);
+    });
+  }
+  interviewOptions.querySelectorAll('.interview-opt').forEach(btn=>{
+    btn.addEventListener('click', ()=> setInterviewType(btn.dataset.type));
+  });
+
   function openApproveModal(id){
     const a = applicants.find(x => x.id === id);
     if(!a) return;
     approveTargetId = id;
     approveSalaryInput.value = a.proposedSalary || '4000 ريال';
+    setInterviewType(a.interviewType || null);
     approveRemoveBtn.style.display = a.approved ? 'block' : 'none';
     approveConfirmBtn.textContent = a.approved ? '💾 تحديث' : '✅ تأكيد';
     approveModalOverlay.classList.add('open');
@@ -484,6 +520,7 @@
   function closeApproveModal(){
     approveModalOverlay.classList.remove('open');
     approveTargetId = null;
+    selectedInterviewType = null;
   }
 
   approveCancelBtn.addEventListener('click', closeApproveModal);
@@ -491,13 +528,18 @@
 
   approveConfirmBtn.addEventListener('click', async ()=>{
     if(!approveTargetId) return;
+    if(!selectedInterviewType){
+      showToast('يرجى تحديد نوع المقابلة', true);
+      return;
+    }
     const salary = approveSalaryInput.value.trim();
     try{
       await updateDoc(doc(db, "applicants", approveTargetId), {
         approved: true,
         proposedSalary: salary || null,
+        interviewType: selectedInterviewType,
       });
-      showToast('تم وضع علامة "مناسب" وحفظ الراتب المقترح');
+      showToast('تم وضع علامة "مناسب" وحفظ الراتب ونوع المقابلة');
       closeApproveModal();
     }catch(err){
       console.error(err);
@@ -573,6 +615,7 @@
       } else {
         avatarHtml = `<div class="avatar-placeholder">${escapeHtml(initials) || '؟'}</div>`;
       }
+      const interviewLabel = a.interviewType === 'remote' ? '📹 عن بُعد (زوم)' : (a.interviewType === 'onsite' ? '🏢 حضورية' : '');
       return `
       <div class="card ${a.approved ? 'approved' : ''}" data-id="${a.id}">
         <div class="card-top">
@@ -580,7 +623,7 @@
             ${avatarHtml}
             <div>
               <p class="applicant-name">${escapeHtml(a.name)}</p>
-              <p class="applicant-role">${escapeHtml(a.role)}${ratingDotsHtml(a.rating)}${a.approved && a.proposedSalary ? `<span class="salary-line">💰 ${escapeHtml(a.proposedSalary)}</span>` : ''}</p>
+              <p class="applicant-role">${escapeHtml(a.role)}${ratingDotsHtml(a.rating)}${a.approved && a.proposedSalary ? `<span class="salary-line">💰 ${escapeHtml(a.proposedSalary)}</span>` : ''}${a.approved && interviewLabel ? `<span class="interview-line">${interviewLabel}</span>` : ''}</p>
               <div class="applicant-meta">
                 ${a.phone ? `<span>📱 ${escapeHtml(a.phone)}</span>` : ''}
               </div>
