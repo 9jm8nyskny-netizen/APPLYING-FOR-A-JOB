@@ -598,7 +598,11 @@
         return getTimeMillis(y) - getTimeMillis(x);
       });
     } else {
-      items.sort((x, y) => getTimeMillis(y) - getTimeMillis(x));
+      items.sort((x, y) => {
+        const rx = x.rating || 0, ry = y.rating || 0;
+        if(ry !== rx) return ry - rx;
+        return getTimeMillis(y) - getTimeMillis(x);
+      });
     }
 
     if(items.length === 0){
