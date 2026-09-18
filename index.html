@@ -47,6 +47,26 @@
     position:sticky;top:0;background:linear-gradient(var(--bg) 82%, transparent);z-index:5;
   }
   .title-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+  .header-actions{display:flex;gap:8px;flex-wrap:wrap;}
+  .trash-count{
+    display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;
+    background:var(--danger);color:#fff;border-radius:999px;font-size:0.68rem;font-weight:700;
+    margin-inline-start:6px;padding:0 5px;
+  }
+  .restore-btn{
+    display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border-radius:8px;font-size:0.83rem;
+    font-weight:700;border:1px solid #059669;color:#059669;background:transparent;cursor:pointer;font-family:inherit;
+  }
+  .restore-btn:hover{background:#ecfdf5;}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]) .restore-btn:hover{background:#0d2b22;}
+  }
+  .finalize-btn{
+    display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border-radius:8px;font-size:0.83rem;
+    font-weight:700;border:1px solid var(--danger);color:var(--danger);background:transparent;cursor:pointer;font-family:inherit;
+  }
+  .finalize-btn:hover{background:var(--danger);color:#fff;}
+  .card.trashed{opacity:0.85;}
   h1{font-size:1.55rem;font-weight:900;margin:0;color:var(--primary);letter-spacing:-0.3px;}
   .subtitle{color:var(--text-muted);font-size:0.85rem;margin-top:2px;}
   .btn{
@@ -224,13 +244,16 @@
         <h1>المتقدمون للوظائف</h1>
         <div class="subtitle" id="subtitleCount">جاري التحميل...</div>
       </div>
-      <button class="btn btn-primary add-btn" id="openAddBtn">＋ إضافة متقدم</button>
+      <div class="header-actions">
+        <button class="btn btn-secondary" id="trashBtn"><span id="trashLabel">🗑️ المحذوفات</span><span class="trash-count" id="trashCount" style="display:none;">0</span></button>
+        <button class="btn btn-primary add-btn" id="openAddBtn">＋ إضافة متقدم</button>
+      </div>
     </div>
-    <div class="search-box">
+    <div class="search-box" id="searchBoxWrap">
       <input type="text" id="searchInput" placeholder="ابحث بالاسم أو الوظيفة...">
       <span class="icon">🔍</span>
     </div>
-    <div class="sort-row">
+    <div class="sort-row" id="sortRow">
       <span class="sort-label">الترتيب:</span>
       <div class="sort-toggle" id="sortToggle">
         <button type="button" class="sort-btn active" data-mode="newest">الأحدث</button>
@@ -362,12 +385,18 @@
   let applicants = [];
   let editingId = null;
   let sortMode = 'newest'; // 'newest' | 'suitability'
+  let viewMode = 'active'; // 'active' | 'trash'
 
   const listEl = document.getElementById('list');
   const subtitleCount = document.getElementById('subtitleCount');
   const bannerArea = document.getElementById('bannerArea');
   const searchInput = document.getElementById('searchInput');
   const sortToggle = document.getElementById('sortToggle');
+  const sortRow = document.getElementById('sortRow');
+  const trashBtn = document.getElementById('trashBtn');
+  const trashLabel = document.getElementById('trashLabel');
+  const trashCount = document.getElementById('trashCount');
+  const openAddBtn = document.getElementById('openAddBtn');
   const modalOverlay = document.getElementById('modalOverlay');
   const modalTitle = document.getElementById('modalTitle');
   const applicantForm = document.getElementById('applicantForm');
@@ -575,9 +604,21 @@
     }catch(e){ return ''; }
   }
 
+  function avatarHtmlFor(a){
+    const initials = (a.name || '').trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
+    if(a.photoUrl){
+      const candidates = buildImageCandidates(a.photoUrl);
+      const candStr = escapeHtml(JSON.stringify(candidates));
+      const initialsAttr = escapeHtml(initials) || '؟';
+      return `<img class="avatar" src="${candidates[0]}" data-candidates="${candStr}" data-idx="0" data-fallback-initials="${initialsAttr}" alt="${escapeHtml(a.name)}" onerror="window.__avatarImgFallback(this)">`;
+    }
+    return `<div class="avatar-placeholder">${escapeHtml(initials) || '؟'}</div>`;
+  }
+
   function render(){
     const q = (searchInput.value || '').trim().toLowerCase();
-    let items = applicants.slice();
+    const source = applicants.filter(a => viewMode === 'trash' ? !!a.deleted : !a.deleted);
+    let items = source.slice();
     if(q){
       items = items.filter(a =>
         (a.name||'').toLowerCase().includes(q) ||
@@ -585,55 +626,93 @@
       );
     }
 
-    subtitleCount.textContent = applicants.length
-      ? `${applicants.length} متقدم${applicants.length>1?'ين':''} إجمالاً`
-      : 'لا يوجد متقدمون بعد';
+    const deletedCount = applicants.filter(a => a.deleted).length;
+    trashCount.textContent = String(deletedCount);
+    trashCount.style.display = deletedCount > 0 ? 'inline-flex' : 'none';
 
-    if(sortMode === 'suitability'){
+    if(viewMode === 'trash'){
+      subtitleCount.textContent = source.length
+        ? `${source.length} في المحذوفات`
+        : 'سلة المحذوفات فارغة';
       items.sort((x, y) => {
-        const ax = x.approved ? 1 : 0, ay = y.approved ? 1 : 0;
-        if(ay !== ax) return ay - ax;
-        const rx = x.rating || 0, ry = y.rating || 0;
-        if(ry !== rx) return ry - rx;
-        return getTimeMillis(y) - getTimeMillis(x);
+        const xt = getTimeMillis({createdAt: x.deletedAt || x.createdAt});
+        const yt = getTimeMillis({createdAt: y.deletedAt || y.createdAt});
+        return yt - xt;
       });
     } else {
-      items.sort((x, y) => {
-        const rx = x.rating || 0, ry = y.rating || 0;
-        if(ry !== rx) return ry - rx;
-        return getTimeMillis(y) - getTimeMillis(x);
-      });
+      subtitleCount.textContent = source.length
+        ? `${source.length} متقدم${source.length>1?'ين':''} إجمالاً`
+        : 'لا يوجد متقدمون بعد';
+
+      if(sortMode === 'suitability'){
+        items.sort((x, y) => {
+          const ax = x.approved ? 1 : 0, ay = y.approved ? 1 : 0;
+          if(ay !== ax) return ay - ax;
+          const rx = x.rating || 0, ry = y.rating || 0;
+          if(ry !== rx) return ry - rx;
+          return getTimeMillis(y) - getTimeMillis(x);
+        });
+      } else {
+        items.sort((x, y) => {
+          const rx = x.rating || 0, ry = y.rating || 0;
+          if(ry !== rx) return ry - rx;
+          return getTimeMillis(y) - getTimeMillis(x);
+        });
+      }
     }
 
     if(items.length === 0){
+      const emptyTitle = viewMode === 'trash'
+        ? (source.length ? 'لا توجد نتائج مطابقة للبحث' : 'سلة المحذوفات فارغة')
+        : (applicants.length ? 'لا توجد نتائج مطابقة للبحث' : 'لا يوجد متقدمون بعد');
+      const emptySub = viewMode === 'trash'
+        ? 'أي متقدم تحذفينه سيظهر هنا'
+        : (applicants.length ? 'جرّبي كلمة بحث أخرى' : 'اضغطي على "إضافة متقدم" لإضافة أول متقدم');
       listEl.innerHTML = `
         <div class="empty-state">
-          <div class="big-icon">🗂️</div>
-          <h3>${applicants.length ? 'لا توجد نتائج مطابقة للبحث' : 'لا يوجد متقدمون بعد'}</h3>
-          <div>${applicants.length ? 'جرّبي كلمة بحث أخرى' : 'اضغطي على "إضافة متقدم" لإضافة أول متقدم'}</div>
+          <div class="big-icon">${viewMode === 'trash' ? '🗑️' : '🗂️'}</div>
+          <h3>${emptyTitle}</h3>
+          <div>${emptySub}</div>
         </div>`;
+      return;
+    }
+
+    if(viewMode === 'trash'){
+      listEl.innerHTML = items.map(a => `
+        <div class="card trashed" data-id="${a.id}">
+          <div class="card-top">
+            <div class="card-top-main">
+              ${avatarHtmlFor(a)}
+              <div>
+                <p class="applicant-name">${escapeHtml(a.name)}${a.nationality ? `<span class="nationality-badge">🌍 ${escapeHtml(a.nationality)}</span>` : ''}</p>
+                <p class="applicant-role">${escapeHtml(a.role)}</p>
+              </div>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button class="restore-btn" data-id="${a.id}">↩️ استرجاع</button>
+            <button class="finalize-btn" data-id="${a.id}">❌ حذف نهائي</button>
+          </div>
+        </div>`).join('');
+
+      listEl.querySelectorAll('.restore-btn').forEach(btn=>{
+        btn.addEventListener('click', ()=> restoreApplicant(btn.dataset.id));
+      });
+      listEl.querySelectorAll('.finalize-btn').forEach(btn=>{
+        btn.addEventListener('click', ()=> finalizeDelete(btn.dataset.id));
+      });
       return;
     }
 
     listEl.innerHTML = items.map(a => {
       const cvUrl = a.cvUrl || null;
       const pfUrl = a.portfolioUrl || null;
-      const initials = (a.name || '').trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
-      let avatarHtml;
-      if(a.photoUrl){
-        const candidates = buildImageCandidates(a.photoUrl);
-        const candStr = escapeHtml(JSON.stringify(candidates));
-        const initialsAttr = escapeHtml(initials) || '؟';
-        avatarHtml = `<img class="avatar" src="${candidates[0]}" data-candidates="${candStr}" data-idx="0" data-fallback-initials="${initialsAttr}" alt="${escapeHtml(a.name)}" onerror="window.__avatarImgFallback(this)">`;
-      } else {
-        avatarHtml = `<div class="avatar-placeholder">${escapeHtml(initials) || '؟'}</div>`;
-      }
       const interviewLabel = a.interviewType === 'remote' ? '📹 عن بُعد (زوم)' : (a.interviewType === 'onsite' ? '🏢 حضورية' : '');
       return `
       <div class="card ${a.approved ? 'approved' : ''}" data-id="${a.id}">
         <div class="card-top">
           <div class="card-top-main">
-            ${avatarHtml}
+            ${avatarHtmlFor(a)}
             <div>
               <p class="applicant-name">${escapeHtml(a.name)}${a.nationality ? `<span class="nationality-badge">🌍 ${escapeHtml(a.nationality)}</span>` : ''}</p>
               <p class="applicant-role">${escapeHtml(a.role)}${ratingDotsHtml(a.rating)}${a.approved && a.proposedSalary ? `<span class="salary-line">💰 ${escapeHtml(a.proposedSalary)}</span>` : ''}${a.approved && interviewLabel ? `<span class="interview-line">${interviewLabel}</span>` : ''}</p>
@@ -721,15 +800,45 @@
   async function confirmDelete(id){
     const a = applicants.find(x => x.id === id);
     if(!a) return;
-    if(!confirm(`هل تريدين حذف بيانات "${a.name}"؟ لا يمكن التراجع عن هذا الإجراء.`)) return;
+    try{
+      await updateDoc(doc(db, "applicants", id), { deleted: true, deletedAt: serverTimestamp() });
+      showToast('تم نقل المتقدم إلى المحذوفات');
+    }catch(err){
+      console.error(err);
+      showToast('تعذر النقل إلى المحذوفات، حاولي مرة أخرى', true);
+    }
+  }
+
+  async function restoreApplicant(id){
+    try{
+      await updateDoc(doc(db, "applicants", id), { deleted: false, deletedAt: null });
+      showToast('تم استرجاع المتقدم');
+    }catch(err){
+      console.error(err);
+      showToast('تعذر الاسترجاع، حاولي مرة أخرى', true);
+    }
+  }
+
+  async function finalizeDelete(id){
+    const a = applicants.find(x => x.id === id);
+    if(!a) return;
+    if(!confirm(`هل تريدين حذف بيانات "${a.name}" نهائيًا؟ لا يمكن التراجع عن هذا الإجراء إطلاقًا.`)) return;
     try{
       await deleteDoc(doc(db, "applicants", id));
-      showToast('تم حذف المتقدم');
+      showToast('تم الحذف النهائي');
     }catch(err){
       console.error(err);
       showToast('تعذر الحذف، حاولي مرة أخرى', true);
     }
   }
+
+  trashBtn.addEventListener('click', ()=>{
+    viewMode = viewMode === 'trash' ? 'active' : 'trash';
+    trashLabel.textContent = viewMode === 'trash' ? '↩️ الرجوع للقائمة الرئيسية' : '🗑️ المحذوفات';
+    openAddBtn.style.display = viewMode === 'trash' ? 'none' : '';
+    sortRow.style.display = viewMode === 'trash' ? 'none' : '';
+    render();
+  });
 
   document.getElementById('openAddBtn').addEventListener('click', openAdd);
   document.getElementById('cancelBtn').addEventListener('click', closeModal);
