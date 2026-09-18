@@ -563,7 +563,6 @@
     listEl.innerHTML = items.map(a => {
       const cvUrl = a.cvUrl || null;
       const pfUrl = a.portfolioUrl || null;
-      const createdDate = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate() : (a.createdAt || null);
       const initials = (a.name || '').trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
       let avatarHtml;
       if(a.photoUrl){
@@ -584,7 +583,6 @@
               <p class="applicant-role">${escapeHtml(a.role)}${ratingDotsHtml(a.rating)}${a.approved && a.proposedSalary ? `<span class="salary-line">💰 ${escapeHtml(a.proposedSalary)}</span>` : ''}</p>
               <div class="applicant-meta">
                 ${a.phone ? `<span>📱 ${escapeHtml(a.phone)}</span>` : ''}
-                ${createdDate ? `<span>🗓️ ${fmtDate(createdDate)}</span>` : ''}
               </div>
             </div>
           </div>
