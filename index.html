@@ -70,6 +70,27 @@
   }
   .search-box input:focus{border-color:var(--accent);}
   .search-box .icon{position:absolute;top:50%;right:14px;transform:translateY(-50%);color:var(--text-muted);pointer-events:none;}
+  .sort-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .sort-row .sort-label{font-size:0.8rem;color:var(--text-muted);font-weight:600;}
+  .sort-toggle{display:inline-flex;gap:6px;background:var(--surface-2);padding:4px;border-radius:10px;border:1px solid var(--border);}
+  .sort-btn{
+    padding:7px 14px;border-radius:8px;border:none;background:transparent;color:var(--text-muted);
+    font-family:inherit;font-size:0.82rem;font-weight:700;cursor:pointer;transition:background .15s ease,color .15s ease;
+  }
+  .sort-btn.active{background:var(--primary);color:#fff;}
+  .rating-dots{display:inline-flex;gap:3px;vertical-align:middle;margin-inline-start:8px;}
+  .rating-dot{width:9px;height:9px;border-radius:50%;display:inline-block;}
+  .card.approved{border-inline-start:4px solid #059669;}
+  .approve-btn{
+    display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border-radius:8px;font-size:0.83rem;
+    font-weight:700;border:1px solid var(--border);color:var(--text-muted);background:var(--surface-2);cursor:pointer;font-family:inherit;
+  }
+  .approve-btn:hover{background:var(--border);}
+  .approve-btn.approved{background:#059669;border-color:#059669;color:#fff;}
+  .approve-btn.approved:hover{filter:brightness(1.08);}
+  .star-picker{display:flex;gap:6px;}
+  .star-picker .star{font-size:1.7rem;line-height:1;color:var(--border);cursor:pointer;transition:color .12s ease;user-select:none;}
+  .star-picker .star.filled{color:#059669;}
   .list{display:flex;flex-direction:column;gap:12px;margin-top:6px;}
   .card{
     background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
@@ -181,6 +202,13 @@
       <input type="text" id="searchInput" placeholder="ابحث بالاسم أو الوظيفة...">
       <span class="icon">🔍</span>
     </div>
+    <div class="sort-row">
+      <span class="sort-label">الترتيب:</span>
+      <div class="sort-toggle" id="sortToggle">
+        <button type="button" class="sort-btn active" data-mode="newest">الأحدث</button>
+        <button type="button" class="sort-btn" data-mode="suitability">✅ الأنسب</button>
+      </div>
+    </div>
   </header>
 
   <div id="bannerArea"></div>
@@ -224,6 +252,18 @@
         <input type="url" id="fPortfolioUrl" placeholder="رابط Google Drive أو LinkedIn...">
       </div>
       <div class="field">
+        <label>⭐ مدى ملاءمة المتقدم للوظيفة (اختياري)</label>
+        <div class="star-picker" id="starPicker">
+          <span class="star" data-val="1">★</span>
+          <span class="star" data-val="2">★</span>
+          <span class="star" data-val="3">★</span>
+          <span class="star" data-val="4">★</span>
+          <span class="star" data-val="5">★</span>
+        </div>
+        <input type="hidden" id="fRating" value="0">
+        <span class="hint">كلما زادت النجوم زاد ترتيب المتقدم عند اختيار الترتيب "الأنسب"</span>
+      </div>
+      <div class="field">
         <label>ملاحظات</label>
         <textarea id="fNotes" placeholder="أي ملاحظات إضافية..."></textarea>
       </div>
@@ -243,7 +283,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
   import {
     getFirestore, collection, addDoc, updateDoc, deleteDoc, doc,
-    query, orderBy, onSnapshot, serverTimestamp
+    onSnapshot, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
   // TODO: عدّلي بيانات مشروعك هنا إذا لزم الأمر
@@ -265,16 +305,20 @@
   // ============ App state ============
   let applicants = [];
   let editingId = null;
+  let sortMode = 'newest'; // 'newest' | 'suitability'
 
   const listEl = document.getElementById('list');
   const subtitleCount = document.getElementById('subtitleCount');
   const bannerArea = document.getElementById('bannerArea');
   const searchInput = document.getElementById('searchInput');
+  const sortToggle = document.getElementById('sortToggle');
   const modalOverlay = document.getElementById('modalOverlay');
   const modalTitle = document.getElementById('modalTitle');
   const applicantForm = document.getElementById('applicantForm');
   const saveBtn = document.getElementById('saveBtn');
   const toastEl = document.getElementById('toast');
+  const starPicker = document.getElementById('starPicker');
+  const fRating = document.getElementById('fRating');
 
   function showToast(msg, isError){
     toastEl.textContent = msg;
@@ -355,6 +399,59 @@
     }
   };
 
+  function setStars(val){
+    fRating.value = String(val);
+    starPicker.querySelectorAll('.star').forEach(s=>{
+      s.classList.toggle('filled', parseInt(s.dataset.val, 10) <= val);
+    });
+  }
+  starPicker.querySelectorAll('.star').forEach(s=>{
+    s.addEventListener('click', ()=>{
+      const val = parseInt(s.dataset.val, 10);
+      const current = parseInt(fRating.value, 10) || 0;
+      setStars(val === current ? 0 : val); // clicking the same star again clears the rating
+    });
+  });
+
+  // Green dot indicator: filled dots colored by suitability tier (darker green = higher rating).
+  function ratingDotsHtml(rating){
+    const r = Math.max(0, Math.min(5, rating || 0));
+    if(r === 0) return '';
+    const tierColors = ['', '#d1fae5', '#a7f3d0', '#6ee7b7', '#34d399', '#059669'];
+    const color = tierColors[r];
+    let dots = '';
+    for(let i=1;i<=5;i++){
+      dots += `<span class="rating-dot" style="background:${i<=r ? color : 'var(--border)'}"></span>`;
+    }
+    return `<span class="rating-dots" title="مستوى الملاءمة: ${r}/5">${dots}</span>`;
+  }
+
+  function getTimeMillis(a){
+    if(a.createdAt && typeof a.createdAt.toMillis === 'function') return a.createdAt.toMillis();
+    if(a.createdAt instanceof Date) return a.createdAt.getTime();
+    if(typeof a.createdAt === 'number') return a.createdAt;
+    return 0;
+  }
+
+  sortToggle.querySelectorAll('.sort-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      sortMode = btn.dataset.mode;
+      sortToggle.querySelectorAll('.sort-btn').forEach(b => b.classList.toggle('active', b === btn));
+      render();
+    });
+  });
+
+  async function toggleApproved(id){
+    const a = applicants.find(x => x.id === id);
+    if(!a) return;
+    try{
+      await updateDoc(doc(db, "applicants", id), { approved: !a.approved });
+    }catch(err){
+      console.error(err);
+      showToast('تعذر تحديث الحالة، حاولي مرة أخرى', true);
+    }
+  }
+
   function fmtDate(ts){
     try{
       const d = ts instanceof Date ? ts : new Date(ts);
@@ -375,6 +472,18 @@
     subtitleCount.textContent = applicants.length
       ? `${applicants.length} متقدم${applicants.length>1?'ين':''} إجمالاً`
       : 'لا يوجد متقدمون بعد';
+
+    if(sortMode === 'suitability'){
+      items.sort((x, y) => {
+        const ax = x.approved ? 1 : 0, ay = y.approved ? 1 : 0;
+        if(ay !== ax) return ay - ax;
+        const rx = x.rating || 0, ry = y.rating || 0;
+        if(ry !== rx) return ry - rx;
+        return getTimeMillis(y) - getTimeMillis(x);
+      });
+    } else {
+      items.sort((x, y) => getTimeMillis(y) - getTimeMillis(x));
+    }
 
     if(items.length === 0){
       listEl.innerHTML = `
@@ -401,13 +510,13 @@
         avatarHtml = `<div class="avatar-placeholder">${escapeHtml(initials) || '؟'}</div>`;
       }
       return `
-      <div class="card" data-id="${a.id}">
+      <div class="card ${a.approved ? 'approved' : ''}" data-id="${a.id}">
         <div class="card-top">
           <div class="card-top-main">
             ${avatarHtml}
             <div>
               <p class="applicant-name">${escapeHtml(a.name)}</p>
-              <p class="applicant-role">${escapeHtml(a.role)}</p>
+              <p class="applicant-role">${escapeHtml(a.role)}${ratingDotsHtml(a.rating)}</p>
               <div class="applicant-meta">
                 ${a.phone ? `<span>📱 ${escapeHtml(a.phone)}</span>` : ''}
                 ${createdDate ? `<span>🗓️ ${fmtDate(createdDate)}</span>` : ''}
@@ -419,6 +528,7 @@
         <div class="card-actions">
           <a class="file-btn ${cvUrl ? '' : 'missing'}" href="${cvUrl||'#'}" target="_blank" rel="noopener">📄 فتح السيرة الذاتية</a>
           <a class="file-btn ${pfUrl ? '' : 'missing'}" href="${pfUrl||'#'}" target="_blank" rel="noopener">📁 فتح الأعمال</a>
+          <button class="approve-btn ${a.approved ? 'approved' : ''}" data-id="${a.id}">${a.approved ? '✅ مناسب' : '☐ وضع علامة مناسب'}</button>
           <div class="spacer-actions">
             <button class="icon-btn edit-btn" data-id="${a.id}">✏️ تعديل</button>
             <button class="icon-btn danger delete-btn" data-id="${a.id}">🗑️ حذف</button>
@@ -433,11 +543,15 @@
     listEl.querySelectorAll('.delete-btn').forEach(btn=>{
       btn.addEventListener('click', ()=> confirmDelete(btn.dataset.id));
     });
+    listEl.querySelectorAll('.approve-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=> toggleApproved(btn.dataset.id));
+    });
   }
 
   function resetForm(){
     editingId = null;
     applicantForm.reset();
+    setStars(0);
     const img = document.getElementById('photoPreviewImg');
     img.style.display = 'none';
     img.src = '';
@@ -466,6 +580,7 @@
     document.getElementById('fCvUrl').value = a.cvUrl || '';
     document.getElementById('fPortfolioUrl').value = a.portfolioUrl || '';
     document.getElementById('fPhotoUrl').value = a.photoUrl || '';
+    setStars(a.rating || 0);
     if(a.photoUrl){
       const candidates = buildImageCandidates(a.photoUrl);
       const img = document.getElementById('photoPreviewImg');
@@ -530,6 +645,7 @@
     const cvUrl = document.getElementById('fCvUrl').value.trim();
     const portfolioUrl = document.getElementById('fPortfolioUrl').value.trim();
     const photoUrl = document.getElementById('fPhotoUrl').value.trim();
+    const rating = parseInt(fRating.value, 10) || 0;
 
     if(!name || !role){
       showToast('يرجى إدخال الاسم والوظيفة', true);
@@ -558,6 +674,7 @@
           cvUrl: cvUrl || null,
           portfolioUrl: portfolioUrl || null,
           photoUrl: photoUrl || null,
+          rating,
         };
         await updateDoc(doc(db, "applicants", editingId), data);
         showToast('تم تحديث بيانات المتقدم');
@@ -567,6 +684,8 @@
           cvUrl: cvUrl || null,
           portfolioUrl: portfolioUrl || null,
           photoUrl: photoUrl || null,
+          rating,
+          approved: false,
           createdAt: serverTimestamp(),
         };
         await addDoc(applicantsCol, data);
@@ -584,8 +703,7 @@
 
   function init(){
     try{
-      const q = query(applicantsCol, orderBy('createdAt', 'desc'));
-      onSnapshot(q, (snap) => {
+      onSnapshot(applicantsCol, (snap) => {
         applicants = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
         render();
       }, (err) => {
