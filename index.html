@@ -131,6 +131,11 @@
     background:var(--primary);color:#fff;font-weight:700;font-size:1.05rem;
   }
   .applicant-name{font-size:1.12rem;font-weight:700;color:var(--text);margin:0 0 3px;}
+  .nationality-badge{
+    font-size:0.72rem;font-weight:600;color:var(--text-muted);background:var(--surface-2);
+    border:1px solid var(--border);padding:2px 8px;border-radius:6px;margin-inline-start:6px;
+    vertical-align:middle;display:inline-block;
+  }
   .applicant-role{color:var(--accent-dark);font-weight:600;font-size:0.9rem;margin:0;}
   .applicant-meta{color:var(--text-muted);font-size:0.82rem;margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 14px;}
   .applicant-notes{color:var(--text-muted);font-size:0.85rem;margin-top:8px;line-height:1.5;white-space:pre-wrap;}
@@ -256,6 +261,10 @@
       <div class="field">
         <label>الاسم <span class="req">*</span></label>
         <input type="text" id="fName" required placeholder="مثال: محمد أحمد">
+      </div>
+      <div class="field">
+        <label>🌍 الجنسية</label>
+        <input type="text" id="fNationality" placeholder="مثال: سعودي">
       </div>
       <div class="field">
         <label>رقم الجوال</label>
@@ -622,7 +631,7 @@
           <div class="card-top-main">
             ${avatarHtml}
             <div>
-              <p class="applicant-name">${escapeHtml(a.name)}</p>
+              <p class="applicant-name">${escapeHtml(a.name)}${a.nationality ? `<span class="nationality-badge">🌍 ${escapeHtml(a.nationality)}</span>` : ''}</p>
               <p class="applicant-role">${escapeHtml(a.role)}${ratingDotsHtml(a.rating)}${a.approved && a.proposedSalary ? `<span class="salary-line">💰 ${escapeHtml(a.proposedSalary)}</span>` : ''}${a.approved && interviewLabel ? `<span class="interview-line">${interviewLabel}</span>` : ''}</p>
               <div class="applicant-meta">
                 ${a.phone ? `<span>📱 ${escapeHtml(a.phone)}</span>` : ''}
@@ -680,6 +689,7 @@
     editingId = id;
     modalTitle.textContent = 'تعديل بيانات المتقدم';
     document.getElementById('fName').value = a.name || '';
+    document.getElementById('fNationality').value = a.nationality || '';
     document.getElementById('fPhone').value = a.phone || '';
     document.getElementById('fRole').value = a.role || '';
     document.getElementById('fNotes').value = a.notes || '';
@@ -745,6 +755,7 @@
   applicantForm.addEventListener('submit', async function(e){
     e.preventDefault();
     const name = document.getElementById('fName').value.trim();
+    const nationality = document.getElementById('fNationality').value.trim();
     const role = document.getElementById('fRole').value.trim();
     const phone = document.getElementById('fPhone').value.trim();
     const notes = document.getElementById('fNotes').value.trim();
@@ -776,7 +787,7 @@
     try{
       if(editingId){
         const data = {
-          name, role, phone, notes,
+          name, role, phone, notes, nationality,
           cvUrl: cvUrl || null,
           portfolioUrl: portfolioUrl || null,
           photoUrl: photoUrl || null,
@@ -786,7 +797,7 @@
         showToast('تم تحديث بيانات المتقدم');
       } else {
         const data = {
-          name, role, phone, notes,
+          name, role, phone, notes, nationality,
           cvUrl: cvUrl || null,
           portfolioUrl: portfolioUrl || null,
           photoUrl: photoUrl || null,
