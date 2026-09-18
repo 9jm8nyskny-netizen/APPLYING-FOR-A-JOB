@@ -81,6 +81,13 @@
   .rating-dots{display:inline-flex;gap:3px;vertical-align:middle;margin-inline-start:8px;}
   .rating-dot{width:9px;height:9px;border-radius:50%;display:inline-block;}
   .card.approved{border-inline-start:4px solid #059669;}
+  .salary-line{
+    display:inline-flex;align-items:center;gap:4px;font-size:0.8rem;font-weight:700;
+    color:#059669;background:#ecfdf5;padding:4px 10px;border-radius:7px;margin-inline-start:8px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]) .salary-line{background:#0d2b22;color:#34d399;}
+  }
   .approve-btn{
     display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border-radius:8px;font-size:0.83rem;
     font-weight:700;border:1px solid var(--border);color:var(--text-muted);background:var(--surface-2);cursor:pointer;font-family:inherit;
@@ -275,6 +282,22 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="approveModalOverlay">
+  <div class="modal" style="max-width:380px;">
+    <h2>وضع علامة "مناسب"</h2>
+    <div class="modal-sub">حدّدي راتبًا مقترحًا ليتواصل فريق شؤون الموظفين مع المتقدم على أساسه</div>
+    <div class="field">
+      <label>💰 الراتب المقترح (اختياري)</label>
+      <input type="text" id="approveSalaryInput" placeholder="مثال: 8000 ريال">
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" id="approveCancelBtn">إلغاء</button>
+      <button type="button" class="btn btn-primary" id="approveConfirmBtn">✅ تأكيد</button>
+    </div>
+    <button type="button" class="btn btn-danger" id="approveRemoveBtn" style="width:100%;margin-top:10px;display:none;">إزالة علامة "مناسب"</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script type="module">
@@ -319,6 +342,12 @@
   const toastEl = document.getElementById('toast');
   const starPicker = document.getElementById('starPicker');
   const fRating = document.getElementById('fRating');
+  const approveModalOverlay = document.getElementById('approveModalOverlay');
+  const approveSalaryInput = document.getElementById('approveSalaryInput');
+  const approveConfirmBtn = document.getElementById('approveConfirmBtn');
+  const approveCancelBtn = document.getElementById('approveCancelBtn');
+  const approveRemoveBtn = document.getElementById('approveRemoveBtn');
+  let approveTargetId = null;
 
   function showToast(msg, isError){
     toastEl.textContent = msg;
@@ -441,16 +470,51 @@
     });
   });
 
-  async function toggleApproved(id){
+  function openApproveModal(id){
     const a = applicants.find(x => x.id === id);
     if(!a) return;
+    approveTargetId = id;
+    approveSalaryInput.value = a.proposedSalary || '';
+    approveRemoveBtn.style.display = a.approved ? 'block' : 'none';
+    approveConfirmBtn.textContent = a.approved ? '💾 تحديث' : '✅ تأكيد';
+    approveModalOverlay.classList.add('open');
+  }
+
+  function closeApproveModal(){
+    approveModalOverlay.classList.remove('open');
+    approveTargetId = null;
+  }
+
+  approveCancelBtn.addEventListener('click', closeApproveModal);
+  approveModalOverlay.addEventListener('click', (e)=>{ if(e.target === approveModalOverlay) closeApproveModal(); });
+
+  approveConfirmBtn.addEventListener('click', async ()=>{
+    if(!approveTargetId) return;
+    const salary = approveSalaryInput.value.trim();
     try{
-      await updateDoc(doc(db, "applicants", id), { approved: !a.approved });
+      await updateDoc(doc(db, "applicants", approveTargetId), {
+        approved: true,
+        proposedSalary: salary || null,
+      });
+      showToast('تم وضع علامة "مناسب" وحفظ الراتب المقترح');
+      closeApproveModal();
     }catch(err){
       console.error(err);
-      showToast('تعذر تحديث الحالة، حاولي مرة أخرى', true);
+      showToast('تعذر الحفظ، حاولي مرة أخرى', true);
     }
-  }
+  });
+
+  approveRemoveBtn.addEventListener('click', async ()=>{
+    if(!approveTargetId) return;
+    try{
+      await updateDoc(doc(db, "applicants", approveTargetId), { approved: false });
+      showToast('تمت إزالة علامة "مناسب"');
+      closeApproveModal();
+    }catch(err){
+      console.error(err);
+      showToast('تعذر الحفظ، حاولي مرة أخرى', true);
+    }
+  });
 
   function fmtDate(ts){
     try{
@@ -516,7 +580,7 @@
             ${avatarHtml}
             <div>
               <p class="applicant-name">${escapeHtml(a.name)}</p>
-              <p class="applicant-role">${escapeHtml(a.role)}${ratingDotsHtml(a.rating)}</p>
+              <p class="applicant-role">${escapeHtml(a.role)}${ratingDotsHtml(a.rating)}${a.approved && a.proposedSalary ? `<span class="salary-line">💰 ${escapeHtml(a.proposedSalary)}</span>` : ''}</p>
               <div class="applicant-meta">
                 ${a.phone ? `<span>📱 ${escapeHtml(a.phone)}</span>` : ''}
                 ${createdDate ? `<span>🗓️ ${fmtDate(createdDate)}</span>` : ''}
@@ -544,7 +608,7 @@
       btn.addEventListener('click', ()=> confirmDelete(btn.dataset.id));
     });
     listEl.querySelectorAll('.approve-btn').forEach(btn=>{
-      btn.addEventListener('click', ()=> toggleApproved(btn.dataset.id));
+      btn.addEventListener('click', ()=> openApproveModal(btn.dataset.id));
     });
   }
 
