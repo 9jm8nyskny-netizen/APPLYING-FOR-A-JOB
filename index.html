@@ -90,14 +90,6 @@
   }
   .search-box input:focus{border-color:var(--accent);}
   .search-box .icon{position:absolute;top:50%;right:14px;transform:translateY(-50%);color:var(--text-muted);pointer-events:none;}
-  .sort-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-  .sort-row .sort-label{font-size:0.8rem;color:var(--text-muted);font-weight:600;}
-  .sort-toggle{display:inline-flex;gap:6px;background:var(--surface-2);padding:4px;border-radius:10px;border:1px solid var(--border);}
-  .sort-btn{
-    padding:7px 14px;border-radius:8px;border:none;background:transparent;color:var(--text-muted);
-    font-family:inherit;font-size:0.82rem;font-weight:700;cursor:pointer;transition:background .15s ease,color .15s ease;
-  }
-  .sort-btn.active{background:var(--primary);color:#fff;}
   .rating-dots{display:inline-flex;gap:3px;vertical-align:middle;margin-inline-start:8px;}
   .rating-dot{width:9px;height:9px;border-radius:50%;display:inline-block;}
   .card.approved{border-inline-start:4px solid #059669;}
@@ -253,13 +245,6 @@
       <input type="text" id="searchInput" placeholder="ابحث بالاسم أو الوظيفة...">
       <span class="icon">🔍</span>
     </div>
-    <div class="sort-row" id="sortRow">
-      <span class="sort-label">الترتيب:</span>
-      <div class="sort-toggle" id="sortToggle">
-        <button type="button" class="sort-btn active" data-mode="newest">الأحدث</button>
-        <button type="button" class="sort-btn" data-mode="suitability">✅ الأنسب</button>
-      </div>
-    </div>
   </header>
 
   <div id="bannerArea"></div>
@@ -384,15 +369,12 @@
   // ============ App state ============
   let applicants = [];
   let editingId = null;
-  let sortMode = 'newest'; // 'newest' | 'suitability'
   let viewMode = 'active'; // 'active' | 'trash'
 
   const listEl = document.getElementById('list');
   const subtitleCount = document.getElementById('subtitleCount');
   const bannerArea = document.getElementById('bannerArea');
   const searchInput = document.getElementById('searchInput');
-  const sortToggle = document.getElementById('sortToggle');
-  const sortRow = document.getElementById('sortRow');
   const trashBtn = document.getElementById('trashBtn');
   const trashLabel = document.getElementById('trashLabel');
   const trashCount = document.getElementById('trashCount');
@@ -526,14 +508,6 @@
     return 0;
   }
 
-  sortToggle.querySelectorAll('.sort-btn').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      sortMode = btn.dataset.mode;
-      sortToggle.querySelectorAll('.sort-btn').forEach(b => b.classList.toggle('active', b === btn));
-      render();
-    });
-  });
-
   function setInterviewType(type){
     selectedInterviewType = type;
     interviewOptions.querySelectorAll('.interview-opt').forEach(btn=>{
@@ -644,21 +618,13 @@
         ? `${source.length} متقدم${source.length>1?'ين':''} إجمالاً`
         : 'لا يوجد متقدمون بعد';
 
-      if(sortMode === 'suitability'){
-        items.sort((x, y) => {
-          const ax = x.approved ? 1 : 0, ay = y.approved ? 1 : 0;
-          if(ay !== ax) return ay - ax;
-          const rx = x.rating || 0, ry = y.rating || 0;
-          if(ry !== rx) return ry - rx;
-          return getTimeMillis(y) - getTimeMillis(x);
-        });
-      } else {
-        items.sort((x, y) => {
-          const rx = x.rating || 0, ry = y.rating || 0;
-          if(ry !== rx) return ry - rx;
-          return getTimeMillis(y) - getTimeMillis(x);
-        });
-      }
+      items.sort((x, y) => {
+        const ax = x.approved ? 1 : 0, ay = y.approved ? 1 : 0;
+        if(ay !== ax) return ay - ax;
+        const rx = x.rating || 0, ry = y.rating || 0;
+        if(ry !== rx) return ry - rx;
+        return getTimeMillis(y) - getTimeMillis(x);
+      });
     }
 
     if(items.length === 0){
@@ -836,7 +802,6 @@
     viewMode = viewMode === 'trash' ? 'active' : 'trash';
     trashLabel.textContent = viewMode === 'trash' ? '↩️ الرجوع للقائمة الرئيسية' : '🗑️ المحذوفات';
     openAddBtn.style.display = viewMode === 'trash' ? 'none' : '';
-    sortRow.style.display = viewMode === 'trash' ? 'none' : '';
     render();
   });
 
