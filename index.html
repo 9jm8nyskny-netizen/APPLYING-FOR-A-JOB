@@ -228,6 +228,26 @@
     background:#fff7e6;border:1px solid #f0c36d;color:#8a6115;border-radius:10px;
     padding:10px 14px;font-size:0.83rem;margin-bottom:14px;
   }
+  .viewer-overlay{
+    position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;z-index:80;
+  }
+  .viewer-overlay.open{display:flex;}
+  .viewer-bar{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:12px 14px;padding-top:calc(12px + env(safe-area-inset-top, 0px));
+    background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;
+  }
+  .viewer-close-btn{
+    padding:10px 16px;border-radius:9px;border:none;background:var(--danger);color:#fff;
+    font-family:inherit;font-size:0.9rem;font-weight:700;cursor:pointer;
+  }
+  .viewer-close-btn:hover{filter:brightness(1.08);}
+  .viewer-external-link{
+    font-size:0.82rem;font-weight:700;color:var(--text-muted);text-decoration:none;
+    padding:8px 10px;border-radius:8px;
+  }
+  .viewer-external-link:hover{background:var(--surface-2);}
+  .viewer-frame{flex:1;width:100%;border:none;background:#525659;}
   .spinner{
     width:16px;height:16px;border:2.5px solid rgba(255,255,255,0.4);border-top-color:#fff;
     border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle;
@@ -353,6 +373,14 @@
   </div>
 </div>
 
+<div class="viewer-overlay" id="viewerOverlay">
+  <div class="viewer-bar">
+    <button type="button" class="viewer-close-btn" id="viewerCloseBtn">✕ إغلاق والعودة</button>
+    <a class="viewer-external-link" id="viewerExternalLink" href="#" target="_blank" rel="noopener">↗️ فتح في تبويب جديد</a>
+  </div>
+  <iframe id="viewerFrame" class="viewer-frame" title="عرض الملف"></iframe>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script type="module">
@@ -472,22 +500,41 @@
     return url;
   }
 
+  const viewerOverlay = document.getElementById('viewerOverlay');
+  const viewerFrame = document.getElementById('viewerFrame');
+  const viewerExternalLink = document.getElementById('viewerExternalLink');
+  const viewerCloseBtn = document.getElementById('viewerCloseBtn');
+
+  // Shows a file inside the app in a full-screen panel with its own "✕ إغلاق" button,
+  // instead of opening a new browser tab — on mobile, a raw PDF/blob tab often has no
+  // visible back button at all, so this gives a reliable way back regardless of the device.
+  function openViewer(url){
+    viewerFrame.src = url;
+    viewerExternalLink.href = url;
+    viewerOverlay.classList.add('open');
+  }
+  function closeViewer(){
+    viewerOverlay.classList.remove('open');
+    viewerFrame.src = 'about:blank';
+  }
+  viewerCloseBtn.addEventListener('click', closeViewer);
+
   // Some applicants' files arrive as raw base64 "data:application/pdf;base64,..." strings
   // (e.g. from a separate application form that embeds files directly instead of linking to
-  // them). Navigating a tab straight to a giant data: URI is unreliable in Chrome — it can render
-  // a blank/dark screen until manually reloaded. Converting it to a Blob URL first fixes this.
-  async function openDataUrlInNewTab(dataUrl){
-    const win = window.open('', '_blank'); // open the tab synchronously so popup blockers don't interfere
+  // them). Loading such a huge data: URI as a bare page is unreliable — it can render a
+  // blank/dark screen until manually reloaded. Converting it to a Blob URL first fixes this.
+  async function openDataUrlInViewer(dataUrl){
+    openViewer('about:blank');
     try{
       const res = await fetch(dataUrl);
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
-      if(win){ win.location.href = blobUrl; }
-      else { window.open(blobUrl, '_blank'); }
+      viewerFrame.src = blobUrl;
+      viewerExternalLink.href = blobUrl;
     }catch(err){
       console.error(err);
-      if(win) win.close();
       showToast('تعذر فتح الملف، قد يكون الرابط تالفًا', true);
+      closeViewer();
     }
   }
 
@@ -794,12 +841,22 @@
     });
     listEl.querySelectorAll('.file-btn').forEach(a=>{
       const href = a.getAttribute('href');
-      if(href && href.startsWith('data:')){
+      if(!href || href === '#') return;
+      if(href.startsWith('data:')){
         a.addEventListener('click', (e)=>{
           e.preventDefault();
-          openDataUrlInNewTab(href);
+          openDataUrlInViewer(href);
+        });
+      } else if(href.includes('drive.google.com') && href.includes('/preview')){
+        // Drive's /preview endpoint is built for embedding, so show it in our own viewer
+        // panel instead of a bare new tab — that way "close" is always one visible tap away.
+        a.addEventListener('click', (e)=>{
+          e.preventDefault();
+          openViewer(href);
         });
       }
+      // Other links (e.g. LinkedIn) keep their normal target="_blank" new-tab behavior,
+      // since most external sites block being shown inside an iframe.
     });
     listEl.querySelectorAll('.delete-btn').forEach(btn=>{
       btn.addEventListener('click', ()=> confirmDelete(btn.dataset.id));
