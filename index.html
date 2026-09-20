@@ -247,7 +247,17 @@
     padding:8px 10px;border-radius:8px;
   }
   .viewer-external-link:hover{background:var(--surface-2);}
+  .viewer-hint{
+    font-size:0.78rem;color:var(--text-muted);background:var(--surface-2);
+    padding:6px 14px;text-align:center;flex-shrink:0;border-bottom:1px solid var(--border);
+  }
   .viewer-frame{flex:1;width:100%;border:none;background:#525659;}
+  .viewer-image-wrap{
+    flex:1;width:100%;overflow:auto;background:#525659;
+    display:flex;align-items:center;justify-content:center;
+    -webkit-overflow-scrolling:touch;touch-action:pinch-zoom;
+  }
+  .viewer-image{max-width:100%;max-height:100%;object-fit:contain;display:block;}
   .spinner{
     width:16px;height:16px;border:2.5px solid rgba(255,255,255,0.4);border-top-color:#fff;
     border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle;
@@ -378,6 +388,10 @@
     <button type="button" class="viewer-close-btn" id="viewerCloseBtn">✕ إغلاق والعودة</button>
     <a class="viewer-external-link" id="viewerExternalLink" href="#" target="_blank" rel="noopener">↗️ فتح في تبويب جديد</a>
   </div>
+  <div class="viewer-hint">إذا لم يظهر الملف خلال ثوانٍ، اضغطي "↗️ فتح في تبويب جديد" أعلاه</div>
+  <div class="viewer-image-wrap" id="viewerImageWrap" style="display:none;">
+    <img id="viewerImage" class="viewer-image" alt="عرض الملف">
+  </div>
   <iframe id="viewerFrame" class="viewer-frame" title="عرض الملف"></iframe>
 </div>
 
@@ -502,20 +516,43 @@
 
   const viewerOverlay = document.getElementById('viewerOverlay');
   const viewerFrame = document.getElementById('viewerFrame');
+  const viewerImageWrap = document.getElementById('viewerImageWrap');
+  const viewerImage = document.getElementById('viewerImage');
   const viewerExternalLink = document.getElementById('viewerExternalLink');
   const viewerCloseBtn = document.getElementById('viewerCloseBtn');
+
+  function looksLikeImage(url, mimeType){
+    if(mimeType) return mimeType.startsWith('image/');
+    if(!url) return false;
+    if(url.startsWith('data:image/')) return true;
+    return /\.(jpe?g|png|gif|webp|bmp|svg)(\?|#|$)/i.test(url);
+  }
 
   // Shows a file inside the app in a full-screen panel with its own "✕ إغلاق" button,
   // instead of opening a new browser tab — on mobile, a raw PDF/blob tab often has no
   // visible back button at all, so this gives a reliable way back regardless of the device.
-  function openViewer(url){
-    viewerFrame.src = url;
+  // Images are shown as a plain <img> rather than inside the iframe: mobile browsers don't
+  // reliably support pinch-zoom on content nested in an iframe, but a normal <img> zooms fine.
+  function openViewer(url, isImage){
     viewerExternalLink.href = url;
+    if(isImage === undefined) isImage = looksLikeImage(url);
+    if(isImage){
+      viewerFrame.style.display = 'none';
+      viewerFrame.src = 'about:blank';
+      viewerImageWrap.style.display = 'flex';
+      viewerImage.src = url;
+    } else {
+      viewerImageWrap.style.display = 'none';
+      viewerImage.src = '';
+      viewerFrame.style.display = 'block';
+      viewerFrame.src = url;
+    }
     viewerOverlay.classList.add('open');
   }
   function closeViewer(){
     viewerOverlay.classList.remove('open');
     viewerFrame.src = 'about:blank';
+    viewerImage.src = '';
   }
   viewerCloseBtn.addEventListener('click', closeViewer);
 
@@ -524,13 +561,21 @@
   // them). Loading such a huge data: URI as a bare page is unreliable — it can render a
   // blank/dark screen until manually reloaded. Converting it to a Blob URL first fixes this.
   async function openDataUrlInViewer(dataUrl){
-    openViewer('about:blank');
+    openViewer('about:blank', looksLikeImage(dataUrl));
     try{
       const res = await fetch(dataUrl);
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
-      viewerFrame.src = blobUrl;
       viewerExternalLink.href = blobUrl;
+      if(looksLikeImage(dataUrl, blob.type)){
+        viewerFrame.style.display = 'none';
+        viewerImageWrap.style.display = 'flex';
+        viewerImage.src = blobUrl;
+      } else {
+        viewerImageWrap.style.display = 'none';
+        viewerFrame.style.display = 'block';
+        viewerFrame.src = blobUrl;
+      }
     }catch(err){
       console.error(err);
       showToast('تعذر فتح الملف، قد يكون الرابط تالفًا', true);
@@ -842,21 +887,17 @@
     listEl.querySelectorAll('.file-btn').forEach(a=>{
       const href = a.getAttribute('href');
       if(!href || href === '#') return;
-      if(href.startsWith('data:')){
-        a.addEventListener('click', (e)=>{
-          e.preventDefault();
+      a.addEventListener('click', (e)=>{
+        e.preventDefault();
+        if(href.startsWith('data:')){
           openDataUrlInViewer(href);
-        });
-      } else if(href.includes('drive.google.com') && href.includes('/preview')){
-        // Drive's /preview endpoint is built for embedding, so show it in our own viewer
-        // panel instead of a bare new tab — that way "close" is always one visible tap away.
-        a.addEventListener('click', (e)=>{
-          e.preventDefault();
+        } else {
+          // Every link opens inside our own viewer panel — even links that can't be embedded
+          // in an iframe still show our close bar with a working "✕ إغلاق" and an
+          // "↗️ فتح في تبويب جديد" fallback, so there is always a visible way back.
           openViewer(href);
-        });
-      }
-      // Other links (e.g. LinkedIn) keep their normal target="_blank" new-tab behavior,
-      // since most external sites block being shown inside an iframe.
+        }
+      });
     });
     listEl.querySelectorAll('.delete-btn').forEach(btn=>{
       btn.addEventListener('click', ()=> confirmDelete(btn.dataset.id));
