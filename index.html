@@ -281,7 +281,7 @@
       </div>
       <div class="header-actions">
         <button class="btn btn-secondary" id="trashBtn"><span id="trashLabel">🗑️ المحذوفات</span><span class="trash-count" id="trashCount" style="display:none;">0</span></button>
-        <button class="btn btn-primary add-btn" id="openAddBtn">＋ إضافة متقدم</button>
+        <button class="btn btn-primary add-btn" id="openAddBtn" style="display:none;">＋ إضافة متقدم</button>
       </div>
     </div>
     <div class="search-box" id="searchBoxWrap">
@@ -427,6 +427,7 @@
   let editingId = null;
   let viewMode = 'active'; // 'active' | 'trash'
   let selectedRole = null;
+  const addApplicantDisabled = true; // temporarily disabled per request; set back to false to re-enable
 
   const listEl = document.getElementById('list');
   const subtitleCount = document.getElementById('subtitleCount');
@@ -996,7 +997,7 @@
   trashBtn.addEventListener('click', ()=>{
     viewMode = viewMode === 'trash' ? 'active' : 'trash';
     trashLabel.textContent = viewMode === 'trash' ? '↩️ الرجوع للقائمة الرئيسية' : '🗑️ المحذوفات';
-    openAddBtn.style.display = viewMode === 'trash' ? 'none' : '';
+    openAddBtn.style.display = (viewMode === 'trash' || addApplicantDisabled) ? 'none' : '';
     render();
   });
 
