@@ -671,8 +671,7 @@
       // so switching jobs is always available and counts reflect the whole pool.
       const roleCounts = {};
       source.forEach(a=>{
-        const r = (a.role || '').trim();
-        if(!r) return;
+        const r = (a.role || '').trim() || 'بدون مسمى وظيفي';
         roleCounts[r] = (roleCounts[r] || 0) + 1;
       });
       const roleList = Object.keys(roleCounts).sort((r1, r2) => roleCounts[r2] - roleCounts[r1]);
@@ -703,7 +702,7 @@
         return;
       }
 
-      items = items.filter(a => (a.role || '').trim() === selectedRole);
+      items = items.filter(a => ((a.role || '').trim() || 'بدون مسمى وظيفي') === selectedRole);
 
       items.sort((x, y) => {
         const ax = x.approved ? 1 : 0, ay = y.approved ? 1 : 0;
