@@ -454,6 +454,25 @@
     return url;
   }
 
+  // Some applicants' files arrive as raw base64 "data:application/pdf;base64,..." strings
+  // (e.g. from a separate application form that embeds files directly instead of linking to
+  // them). Navigating a tab straight to a giant data: URI is unreliable in Chrome — it can render
+  // a blank/dark screen until manually reloaded. Converting it to a Blob URL first fixes this.
+  async function openDataUrlInNewTab(dataUrl){
+    const win = window.open('', '_blank'); // open the tab synchronously so popup blockers don't interfere
+    try{
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      if(win){ win.location.href = blobUrl; }
+      else { window.open(blobUrl, '_blank'); }
+    }catch(err){
+      console.error(err);
+      if(win) win.close();
+      showToast('تعذر فتح الملف، قد يكون الرابط تالفًا', true);
+    }
+  }
+
   // Called from an <img onerror="..."> to advance to the next candidate URL,
   // and finally to a placeholder if every candidate fails.
   window.__avatarImgFallback = function(img){
@@ -716,6 +735,15 @@
 
     listEl.querySelectorAll('.edit-btn').forEach(btn=>{
       btn.addEventListener('click', ()=> openEdit(btn.dataset.id));
+    });
+    listEl.querySelectorAll('.file-btn').forEach(a=>{
+      const href = a.getAttribute('href');
+      if(href && href.startsWith('data:')){
+        a.addEventListener('click', (e)=>{
+          e.preventDefault();
+          openDataUrlInNewTab(href);
+        });
+      }
     });
     listEl.querySelectorAll('.delete-btn').forEach(btn=>{
       btn.addEventListener('click', ()=> confirmDelete(btn.dataset.id));
