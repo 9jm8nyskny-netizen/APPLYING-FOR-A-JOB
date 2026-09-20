@@ -90,6 +90,19 @@
   }
   .search-box input:focus{border-color:var(--accent);}
   .search-box .icon{position:absolute;top:50%;right:14px;transform:translateY(-50%);color:var(--text-muted);pointer-events:none;}
+  .role-filter-row{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;}
+  .role-chip{
+    display:inline-flex;align-items:center;gap:8px;padding:9px 15px;border-radius:999px;
+    border:1px solid var(--border);background:var(--surface);color:var(--text);
+    font-family:inherit;font-size:0.87rem;font-weight:700;cursor:pointer;transition:border-color .15s ease, background .15s ease, color .15s ease;
+  }
+  .role-chip:hover{border-color:var(--accent);}
+  .role-chip.active{background:var(--primary);border-color:var(--primary);color:#fff;}
+  .role-chip-count{
+    display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;
+    border-radius:50%;background:var(--surface-2);color:var(--text-muted);font-size:0.76rem;font-weight:700;
+  }
+  .role-chip.active .role-chip-count{background:rgba(255,255,255,0.25);color:#fff;}
   .rating-dots{display:inline-flex;gap:3px;vertical-align:middle;margin-inline-start:8px;}
   .rating-dot{width:9px;height:9px;border-radius:50%;display:inline-block;}
   .card.approved{border-inline-start:4px solid #059669;}
@@ -245,6 +258,7 @@
       <input type="text" id="searchInput" placeholder="ابحث بالاسم أو الوظيفة...">
       <span class="icon">🔍</span>
     </div>
+    <div class="role-filter-row" id="roleFilterRow"></div>
   </header>
 
   <div id="bannerArea"></div>
@@ -370,11 +384,13 @@
   let applicants = [];
   let editingId = null;
   let viewMode = 'active'; // 'active' | 'trash'
+  let selectedRole = null;
 
   const listEl = document.getElementById('list');
   const subtitleCount = document.getElementById('subtitleCount');
   const bannerArea = document.getElementById('bannerArea');
   const searchInput = document.getElementById('searchInput');
+  const roleFilterRow = document.getElementById('roleFilterRow');
   const trashBtn = document.getElementById('trashBtn');
   const trashLabel = document.getElementById('trashLabel');
   const trashCount = document.getElementById('trashCount');
@@ -637,6 +653,7 @@
     trashCount.style.display = deletedCount > 0 ? 'inline-flex' : 'none';
 
     if(viewMode === 'trash'){
+      roleFilterRow.innerHTML = '';
       subtitleCount.textContent = source.length
         ? `${source.length} في المحذوفات`
         : 'سلة المحذوفات فارغة';
@@ -649,6 +666,44 @@
       subtitleCount.textContent = source.length
         ? `${source.length} متقدم${source.length>1?'ين':''} إجمالاً`
         : 'لا يوجد متقدمون بعد';
+
+      // Build role chips from every active (non-deleted) applicant, regardless of the search box,
+      // so switching jobs is always available and counts reflect the whole pool.
+      const roleCounts = {};
+      source.forEach(a=>{
+        const r = (a.role || '').trim();
+        if(!r) return;
+        roleCounts[r] = (roleCounts[r] || 0) + 1;
+      });
+      const roleList = Object.keys(roleCounts).sort((r1, r2) => roleCounts[r2] - roleCounts[r1]);
+      if(selectedRole && !roleCounts[selectedRole]) selectedRole = null;
+
+      if(roleList.length === 0){
+        roleFilterRow.innerHTML = '';
+      } else {
+        roleFilterRow.innerHTML = roleList.map(r => `
+          <button type="button" class="role-chip ${selectedRole === r ? 'active' : ''}" data-role="${escapeHtml(r)}">${escapeHtml(r)} <span class="role-chip-count">${roleCounts[r]}</span></button>
+        `).join('');
+        roleFilterRow.querySelectorAll('.role-chip').forEach(chip=>{
+          chip.addEventListener('click', ()=>{
+            const r = chip.dataset.role;
+            selectedRole = (selectedRole === r) ? null : r;
+            render();
+          });
+        });
+      }
+
+      if(!selectedRole){
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <div class="big-icon">👆</div>
+            <h3>اختر مسمى وظيفي من الأعلى</h3>
+            <div>اضغط على أحد المسميات لعرض المتقدمين له</div>
+          </div>`;
+        return;
+      }
+
+      items = items.filter(a => (a.role || '').trim() === selectedRole);
 
       items.sort((x, y) => {
         const ax = x.approved ? 1 : 0, ay = y.approved ? 1 : 0;
