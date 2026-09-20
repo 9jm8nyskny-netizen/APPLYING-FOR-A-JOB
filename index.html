@@ -441,6 +441,19 @@
     return [url];
   }
 
+  // Drive's plain "view" page sometimes opens image files in its built-in lightbox viewer,
+  // which can hang on a dark screen and dump a giant data:image/... URL into the address bar
+  // until reloaded. Drive's "/preview" endpoint uses a stable embedded viewer for both PDFs
+  // and images and doesn't have this bug, so we rewrite Drive links to it before opening.
+  function getOpenUrl(url){
+    if(!url) return url;
+    const fileId = getDriveFileId(url);
+    if(fileId){
+      return `https://drive.google.com/file/d/${fileId}/preview`;
+    }
+    return url;
+  }
+
   // Called from an <img onerror="..."> to advance to the next candidate URL,
   // and finally to a placeholder if every candidate fails.
   window.__avatarImgFallback = function(img){
@@ -671,8 +684,8 @@
     }
 
     listEl.innerHTML = items.map(a => {
-      const cvUrl = a.cvUrl || null;
-      const pfUrl = a.portfolioUrl || null;
+      const cvUrl = a.cvUrl ? getOpenUrl(a.cvUrl) : null;
+      const pfUrl = a.portfolioUrl ? getOpenUrl(a.portfolioUrl) : null;
       const interviewLabel = a.interviewType === 'remote' ? '📹 عن بُعد (زوم)' : (a.interviewType === 'onsite' ? '🏢 حضورية' : '');
       return `
       <div class="card ${a.approved ? 'approved' : ''}" data-id="${a.id}">
