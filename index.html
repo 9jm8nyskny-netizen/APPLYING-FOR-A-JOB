@@ -425,7 +425,9 @@
 
   function isValidUrl(v){
     if(!v) return true; // empty is fine, it's optional
-    try{ const u = new URL(v); return u.protocol === 'http:' || u.protocol === 'https:'; }
+    // Accept data: URIs too — some applicants come from a separate form that embeds
+    // files as base64 instead of linking to them; the app already knows how to open those safely.
+    try{ const u = new URL(v); return u.protocol === 'http:' || u.protocol === 'https:' || u.protocol === 'data:'; }
     catch(e){ return false; }
   }
 
