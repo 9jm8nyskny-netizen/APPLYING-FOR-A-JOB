@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>المتقدمون للوظائف</title>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
@@ -180,6 +183,10 @@
   .spacer-actions{margin-inline-start:auto;display:flex;gap:4px;}
   .empty-state{text-align:center;padding:70px 20px;color:var(--text-muted);}
   .empty-state .big-icon{font-size:2.6rem;margin-bottom:10px;}
+  .loading-spinner{
+    width:38px;height:38px;margin:0 auto 14px;border-radius:50%;
+    border:4px solid var(--border);border-top-color:var(--accent);animation:spin .8s linear infinite;
+  }
   .empty-state h3{color:var(--text);margin:0 0 6px;}
   .modal-overlay{
     position:fixed;inset:0;background:rgba(15,20,26,0.5);display:none;align-items:flex-start;
@@ -402,7 +409,8 @@
   // Firestore only — no Storage used, so this stays on Firebase's free Spark plan.
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
   import {
-    getFirestore, collection, addDoc, updateDoc, deleteDoc, doc,
+    getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+    collection, addDoc, updateDoc, deleteDoc, doc,
     onSnapshot, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
@@ -419,7 +427,20 @@
   };
 
   const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  // Local cache: after the first visit, the list appears instantly from the device's cache
+  // while fresh data is fetched in the background. Falls back to normal mode if unsupported.
+  let db;
+  try{
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+        cacheSizeBytes: 300 * 1024 * 1024
+      })
+    });
+  }catch(e){
+    console.warn('persistent cache unavailable, using default', e);
+    db = getFirestore(app);
+  }
   const applicantsCol = collection(db, "applicants");
 
   // ============ App state ============
@@ -427,6 +448,7 @@
   let editingId = null;
   let viewMode = 'active'; // 'active' | 'trash'
   let selectedRole = null;
+  let isLoading = true; // true until the first real data arrives
   const addApplicantDisabled = true; // temporarily disabled per request; set back to false to re-enable
 
   const listEl = document.getElementById('list');
@@ -724,15 +746,29 @@
   function avatarHtmlFor(a){
     const initials = (a.name || '').trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
     if(a.photoUrl){
+      const initialsAttr = escapeHtml(initials) || '؟';
+      // Embedded (data:) photos can be huge — use them directly, without copying them into extra attributes.
+      if(a.photoUrl.startsWith('data:')){
+        return `<img class="avatar" src="${a.photoUrl}" data-fallback-initials="${initialsAttr}" alt="${escapeHtml(a.name)}" onerror="window.__avatarImgFallback(this)">`;
+      }
       const candidates = buildImageCandidates(a.photoUrl);
       const candStr = escapeHtml(JSON.stringify(candidates));
-      const initialsAttr = escapeHtml(initials) || '؟';
       return `<img class="avatar" src="${candidates[0]}" data-candidates="${candStr}" data-idx="0" data-fallback-initials="${initialsAttr}" alt="${escapeHtml(a.name)}" onerror="window.__avatarImgFallback(this)">`;
     }
     return `<div class="avatar-placeholder">${escapeHtml(initials) || '؟'}</div>`;
   }
 
   function render(){
+    if(isLoading){
+      subtitleCount.textContent = 'جاري تحميل المتقدمين...';
+      listEl.innerHTML = `
+        <div class="empty-state">
+          <div class="loading-spinner"></div>
+          <h3>جاري تحميل المتقدمين...</h3>
+          <div>لحظات ويظهرون</div>
+        </div>`;
+      return;
+    }
     const q = (searchInput.value || '').trim().toLowerCase();
     const source = applicants.filter(a => viewMode === 'trash' ? !!a.deleted : !a.deleted);
     let items = source.slice();
@@ -852,8 +888,8 @@
     }
 
     listEl.innerHTML = items.map(a => {
-      const cvUrl = a.cvUrl ? getOpenUrl(a.cvUrl) : null;
-      const pfUrl = a.portfolioUrl ? getOpenUrl(a.portfolioUrl) : null;
+      const cvUrl = a.cvUrl || null;
+      const pfUrl = a.portfolioUrl || null;
       const interviewLabel = a.interviewType === 'remote' ? '📹 عن بُعد (زوم)' : (a.interviewType === 'onsite' ? '🏢 حضورية' : '');
       return `
       <div class="card ${a.approved ? 'approved' : ''}" data-id="${a.id}">
@@ -871,8 +907,8 @@
         </div>
         ${a.notes ? `<div class="applicant-notes">${escapeHtml(a.notes)}</div>` : ''}
         <div class="card-actions">
-          <a class="file-btn ${cvUrl ? '' : 'missing'}" href="${cvUrl||'#'}" target="_blank" rel="noopener">📄 فتح السيرة الذاتية</a>
-          <a class="file-btn ${pfUrl ? '' : 'missing'}" href="${pfUrl||'#'}" target="_blank" rel="noopener">📁 فتح الأعمال</a>
+          <a class="file-btn ${cvUrl ? '' : 'missing'}" href="#" data-id="${a.id}" data-field="cvUrl">📄 فتح السيرة الذاتية</a>
+          <a class="file-btn ${pfUrl ? '' : 'missing'}" href="#" data-id="${a.id}" data-field="portfolioUrl">📁 فتح الأعمال</a>
           <button class="approve-btn ${a.approved ? 'approved' : ''}" data-id="${a.id}">${a.approved ? '✅ مناسب' : '☐ وضع علامة مناسب'}</button>
           <div class="spacer-actions">
             <button class="icon-btn edit-btn" data-id="${a.id}">✏️ تعديل</button>
@@ -886,17 +922,18 @@
       btn.addEventListener('click', ()=> openEdit(btn.dataset.id));
     });
     listEl.querySelectorAll('.file-btn').forEach(a=>{
-      const href = a.getAttribute('href');
-      if(!href || href === '#') return;
+      if(a.classList.contains('missing')) return;
       a.addEventListener('click', (e)=>{
         e.preventDefault();
-        if(href.startsWith('data:')){
-          openDataUrlInViewer(href);
+        const rec = applicants.find(x => x.id === a.dataset.id);
+        const raw = rec && rec[a.dataset.field];
+        if(!raw) return;
+        if(raw.startsWith('data:')){
+          openDataUrlInViewer(raw);
         } else {
-          // Every link opens inside our own viewer panel — even links that can't be embedded
-          // in an iframe still show our close bar with a working "✕ إغلاق" and an
-          // "↗️ فتح في تبويب جديد" fallback, so there is always a visible way back.
-          openViewer(href);
+          // Every link opens inside our own viewer panel, with a visible "✕ إغلاق"
+          // and an "↗️ فتح في تبويب جديد" fallback.
+          openViewer(getOpenUrl(raw));
         }
       });
     });
@@ -1092,18 +1129,31 @@
     }
   });
 
+  function finishLoading(){
+    if(!isLoading) return;
+    isLoading = false;
+    render();
+  }
+
   function init(){
+    // Safety net: never leave the loading screen up forever (e.g. when offline with an empty cache).
+    setTimeout(finishLoading, 12000);
     try{
       onSnapshot(applicantsCol, (snap) => {
         applicants = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
+        // An empty answer that came only from the (still empty) local cache isn't real yet — wait for the server.
+        if(snap.metadata.fromCache && snap.empty && isLoading) return;
+        isLoading = false;
         render();
       }, (err) => {
         console.error('firestore error', err);
         bannerArea.innerHTML = `<div class="banner">⚠️ تعذر الاتصال بقاعدة بيانات Firebase. تأكدي من تفعيل Firestore وقواعد الأمان (Security Rules) في مشروعك.</div>`;
+        finishLoading();
       });
     }catch(err){
       console.error(err);
       bannerArea.innerHTML = `<div class="banner">⚠️ حدث خطأ أثناء الاتصال بـ Firebase. تحققي من إعدادات المشروع.</div>`;
+      finishLoading();
     }
   }
 
