@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>المتقدمون للوظائف</title>
+<link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js">
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js">
@@ -296,7 +297,14 @@
     background:var(--surface-2);color:var(--text);font-family:inherit;font-size:1.05rem;font-weight:700;cursor:pointer;
   }
   .viewer-zoom button:hover{background:var(--border);}
-  .viewer-zoom .zoom-reset{font-size:0.8rem;}
+  .viewer-pdf-wrap{
+    flex:1;min-height:0;width:100%;overflow:auto;background:#525659;direction:ltr;
+    -webkit-overflow-scrolling:touch;touch-action:pan-x pan-y pinch-zoom;
+  }
+  .pdf-pages{display:flex;flex-direction:column;gap:10px;padding:10px;width:max-content;min-width:100%;box-sizing:border-box;}
+  .pdf-page{margin:0 auto;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.35);min-height:40px;}
+  .pdf-page canvas{display:block;}
+  .pdf-loading{color:#fff;padding:40px 10px;text-align:center;font-size:0.95rem;}
   .spinner{
     width:16px;height:16px;border:2.5px solid rgba(255,255,255,0.4);border-top-color:#fff;
     border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle;
@@ -433,14 +441,16 @@
     <button type="button" class="viewer-close-btn" id="viewerCloseBtn">✕ إغلاق والعودة</button>
     <div class="viewer-zoom" id="viewerZoom">
       <button type="button" id="zoomOutBtn" aria-label="تصغير">−</button>
-      <button type="button" class="zoom-reset" id="zoomResetBtn">ملاءمة الشاشة</button>
       <button type="button" id="zoomInBtn" aria-label="تكبير">＋</button>
     </div>
     <a class="viewer-external-link" id="viewerExternalLink" href="#" target="_blank" rel="noopener">↗️ فتح في تبويب جديد</a>
   </div>
-  <div class="viewer-hint">إذا لم يظهر الملف خلال ثوانٍ، اضغطي "↗️ فتح في تبويب جديد" أعلاه</div>
+  <div class="viewer-hint" id="viewerHint">إذا لم يظهر الملف خلال ثوانٍ، اضغطي "↗️ فتح في تبويب جديد" أعلاه</div>
   <div class="viewer-image-wrap" id="viewerImageWrap" style="display:none;">
     <img id="viewerImage" class="viewer-image" alt="عرض الملف">
+  </div>
+  <div class="viewer-pdf-wrap" id="viewerPdfWrap" style="display:none;">
+    <div class="pdf-pages" id="viewerPdfPages"></div>
   </div>
   <iframe id="viewerFrame" class="viewer-frame" title="عرض الملف"></iframe>
 </div>
@@ -588,7 +598,25 @@
   const viewerFrame = document.getElementById('viewerFrame');
   const viewerImageWrap = document.getElementById('viewerImageWrap');
   const viewerImage = document.getElementById('viewerImage');
+  const viewerPdfWrap = document.getElementById('viewerPdfWrap');
+  const viewerPdfPages = document.getElementById('viewerPdfPages');
   const viewerZoom = document.getElementById('viewerZoom');
+  const viewerHint = document.getElementById('viewerHint');
+  const viewerExternalLink = document.getElementById('viewerExternalLink');
+  const viewerCloseBtn = document.getElementById('viewerCloseBtn');
+  const DEFAULT_HINT = viewerHint.textContent;
+
+  let viewerMode = 'frame';   // 'image' | 'pdf' | 'frame'
+  let currentBlobUrl = null;
+
+  function setViewerMode(mode){
+    viewerMode = mode;
+    viewerImageWrap.style.display = mode === 'image' ? 'flex' : 'none';
+    viewerPdfWrap.style.display = mode === 'pdf' ? 'block' : 'none';
+    viewerFrame.style.display = mode === 'frame' ? 'block' : 'none';
+    viewerZoom.style.display = (mode === 'image' || mode === 'pdf') ? 'flex' : 'none';
+    viewerHint.textContent = DEFAULT_HINT;
+  }
 
   // ---- Image viewer: fits the whole image on screen, then zoom in/out ----
   let imgZoom = 1; // 1 = whole image visible; bigger = zoomed in
@@ -613,10 +641,6 @@
     w.scrollTop = cy * w.scrollHeight - w.clientHeight / 2;
   }
   viewerImage.addEventListener('load', ()=>{ imgZoom = 1; layoutImage(); });
-  window.addEventListener('resize', layoutImage);
-  document.getElementById('zoomInBtn').addEventListener('click', ()=> setImageZoom(imgZoom * 1.5));
-  document.getElementById('zoomOutBtn').addEventListener('click', ()=> setImageZoom(imgZoom / 1.5));
-  document.getElementById('zoomResetBtn').addEventListener('click', ()=> setImageZoom(1));
   viewerImage.addEventListener('dblclick', ()=> setImageZoom(imgZoom > 1 ? 1 : 2.5));
   viewerImageWrap.addEventListener('wheel', (e)=>{
     if(!e.ctrlKey) return;            // plain wheel keeps scrolling
@@ -636,8 +660,136 @@
     }
   }, {passive:false});
   viewerImageWrap.addEventListener('touchend', ()=>{ pinchStartDist = 0; });
-  const viewerExternalLink = document.getElementById('viewerExternalLink');
-  const viewerCloseBtn = document.getElementById('viewerCloseBtn');
+
+  // ---- PDF viewer: every page drawn one under the other, scroll down to read all of them ----
+  // (Phone browsers often show only the first page of a PDF inside a frame, so PDFs that arrive
+  //  as embedded files are drawn here with PDF.js instead.)
+  const PDFJS_VERSION = '3.11.174';
+  let pdfJsPromise = null;
+  let pdfDoc = null, pdfZoom = 1, pdfGen = 0, pdfObserver = null, pdfFirstRatio = 1.414;
+
+  function loadPdfJs(){
+    if(window.pdfjsLib) return Promise.resolve();
+    if(pdfJsPromise) return pdfJsPromise;
+    pdfJsPromise = new Promise((resolve, reject)=>{
+      const sc = document.createElement('script');
+      sc.src = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.min.js`;
+      sc.onload = ()=>{
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}/pdf.worker.min.js`;
+        resolve();
+      };
+      sc.onerror = ()=>{ pdfJsPromise = null; reject(new Error('pdfjs failed to load')); };
+      document.head.appendChild(sc);
+    });
+    return pdfJsPromise;
+  }
+
+  function pdfAvailWidth(){ return Math.max(200, viewerPdfWrap.clientWidth - 20); }
+  function pdfMaxZoom(){ return Math.max(1, Math.min(3, 3600 / pdfAvailWidth())); }
+
+  async function renderPdfPage(div, gen, targetW){
+    try{
+      const n = parseInt(div.dataset.page, 10);
+      const page = await pdfDoc.getPage(n);
+      if(gen !== pdfGen) return;
+      const vp1 = page.getViewport({scale: 1});
+      const cssScale = targetW / vp1.width;
+      const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2, 3600 / targetW));
+      const vp = page.getViewport({scale: cssScale * dpr});
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(vp.width);
+      canvas.height = Math.floor(vp.height);
+      canvas.style.width = targetW + 'px';
+      canvas.style.height = Math.round(vp.height / dpr) + 'px';
+      await page.render({canvasContext: canvas.getContext('2d'), viewport: vp}).promise;
+      if(gen !== pdfGen) return;
+      div.innerHTML = '';
+      div.appendChild(canvas);
+      div.style.height = 'auto';
+    }catch(err){
+      console.error(err);
+      if(gen === pdfGen) div.textContent = 'تعذر عرض هذه الصفحة';
+    }
+  }
+
+  function buildPdfPages(keepPosition){
+    if(!pdfDoc) return;
+    const gen = ++pdfGen;
+    if(pdfObserver) pdfObserver.disconnect();
+    const w = viewerPdfWrap;
+    const ry = w.scrollHeight ? (w.scrollTop + w.clientHeight / 2) / w.scrollHeight : 0;
+    const rx = w.scrollWidth ? (w.scrollLeft + w.clientWidth / 2) / w.scrollWidth : 0.5;
+    viewerPdfPages.innerHTML = '';
+    const targetW = Math.round(pdfAvailWidth() * pdfZoom);
+    // Pages are drawn only when they come near the screen, so long files open fast.
+    pdfObserver = new IntersectionObserver((entries)=>{
+      entries.forEach(en=>{
+        if(en.isIntersecting){
+          pdfObserver.unobserve(en.target);
+          renderPdfPage(en.target, gen, targetW);
+        }
+      });
+    }, {root: w, rootMargin: '900px 0px'});
+    const placeholderH = Math.round(targetW * pdfFirstRatio);
+    for(let n = 1; n <= pdfDoc.numPages; n++){
+      const d = document.createElement('div');
+      d.className = 'pdf-page';
+      d.dataset.page = String(n);
+      d.style.width = targetW + 'px';
+      d.style.height = placeholderH + 'px';
+      viewerPdfPages.appendChild(d);
+      pdfObserver.observe(d);
+    }
+    if(keepPosition){
+      w.scrollTop = ry * w.scrollHeight - w.clientHeight / 2;
+      w.scrollLeft = rx * w.scrollWidth - w.clientWidth / 2;
+    }
+  }
+
+  function setPdfZoom(z){
+    const nz = Math.max(1, Math.min(pdfMaxZoom(), z));
+    if(Math.abs(nz - pdfZoom) < 0.01) return;
+    pdfZoom = nz;
+    buildPdfPages(true);
+  }
+
+  async function openPdfInViewer(buf, blobUrl){
+    setViewerMode('pdf');
+    viewerPdfPages.innerHTML = '<div class="pdf-loading">جاري تحميل الملف...</div>';
+    try{
+      await loadPdfJs();
+      pdfDoc = await window.pdfjsLib.getDocument({data: new Uint8Array(buf)}).promise;
+      const p1 = await pdfDoc.getPage(1);
+      const v1 = p1.getViewport({scale: 1});
+      pdfFirstRatio = v1.height / v1.width;
+      pdfZoom = 1;
+      viewerPdfWrap.scrollTop = 0;
+      buildPdfPages(false);
+      viewerHint.textContent = `عدد الصفحات: ${pdfDoc.numPages} — مرّري للأسفل لرؤية باقي الصفحات`;
+    }catch(err){
+      console.error(err);
+      // Could not use PDF.js (e.g. blocked/offline): fall back to the browser's own viewer.
+      pdfDoc = null;
+      setViewerMode('frame');
+      viewerFrame.src = blobUrl;
+    }
+  }
+
+  let resizeTimer = null;
+  window.addEventListener('resize', ()=>{
+    if(viewerMode === 'image') layoutImage();
+    if(viewerMode === 'pdf' && pdfDoc){
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(()=> buildPdfPages(true), 250);
+    }
+  });
+
+  document.getElementById('zoomInBtn').addEventListener('click', ()=>{
+    if(viewerMode === 'pdf') setPdfZoom(pdfZoom * 1.35); else setImageZoom(imgZoom * 1.5);
+  });
+  document.getElementById('zoomOutBtn').addEventListener('click', ()=>{
+    if(viewerMode === 'pdf') setPdfZoom(pdfZoom / 1.35); else setImageZoom(imgZoom / 1.5);
+  });
 
   function looksLikeImage(url, mimeType){
     if(mimeType) return mimeType.startsWith('image/');
@@ -649,23 +801,17 @@
   // Shows a file inside the app in a full-screen panel with its own "✕ إغلاق" button,
   // instead of opening a new browser tab — on mobile, a raw PDF/blob tab often has no
   // visible back button at all, so this gives a reliable way back regardless of the device.
-  // Images are shown as a plain <img> rather than inside the iframe: mobile browsers don't
-  // reliably support pinch-zoom on content nested in an iframe, but a normal <img> zooms fine.
   function openViewer(url, isImage){
     viewerExternalLink.href = url;
     if(isImage === undefined) isImage = looksLikeImage(url);
     if(isImage){
-      viewerFrame.style.display = 'none';
+      setViewerMode('image');
       viewerFrame.src = 'about:blank';
-      viewerImageWrap.style.display = 'flex';
-      viewerZoom.style.display = 'flex';
       imgZoom = 1;
       viewerImage.src = url;
     } else {
-      viewerImageWrap.style.display = 'none';
-      viewerZoom.style.display = 'none';
+      setViewerMode('frame');
       viewerImage.src = '';
-      viewerFrame.style.display = 'block';
       viewerFrame.src = url;
     }
     viewerOverlay.classList.add('open');
@@ -674,32 +820,43 @@
     viewerOverlay.classList.remove('open');
     viewerFrame.src = 'about:blank';
     viewerImage.src = '';
+    pdfGen++;
+    if(pdfObserver){ pdfObserver.disconnect(); pdfObserver = null; }
+    if(pdfDoc){ try{ pdfDoc.destroy(); }catch(e){} pdfDoc = null; }
+    viewerPdfPages.innerHTML = '';
     viewerZoom.style.display = 'none';
+    if(currentBlobUrl){ URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null; }
   }
   viewerCloseBtn.addEventListener('click', closeViewer);
 
   // Some applicants' files arrive as raw base64 "data:application/pdf;base64,..." strings
   // (e.g. from a separate application form that embeds files directly instead of linking to
-  // them). Loading such a huge data: URI as a bare page is unreliable — it can render a
-  // blank/dark screen until manually reloaded. Converting it to a Blob URL first fixes this.
+  // them). Loading such a huge data: URI as a bare page is unreliable, so it is converted to a
+  // real file in memory first: images are shown as pictures, PDFs are drawn page by page.
   async function openDataUrlInViewer(dataUrl){
     openViewer('about:blank', looksLikeImage(dataUrl));
     try{
       const res = await fetch(dataUrl);
       const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      viewerExternalLink.href = blobUrl;
       if(looksLikeImage(dataUrl, blob.type)){
-        viewerFrame.style.display = 'none';
-        viewerImageWrap.style.display = 'flex';
-        viewerZoom.style.display = 'flex';
+        currentBlobUrl = URL.createObjectURL(blob);
+        viewerExternalLink.href = currentBlobUrl;
+        setViewerMode('image');
         imgZoom = 1;
-        viewerImage.src = blobUrl;
+        viewerImage.src = currentBlobUrl;
+        return;
+      }
+      const buf = await blob.arrayBuffer();
+      const head = String.fromCharCode(...new Uint8Array(buf.slice(0, 5)));
+      const isPdf = head === '%PDF-' || blob.type === 'application/pdf';
+      const finalBlob = isPdf ? new Blob([buf], {type: 'application/pdf'}) : blob;
+      currentBlobUrl = URL.createObjectURL(finalBlob);
+      viewerExternalLink.href = currentBlobUrl;
+      if(isPdf){
+        await openPdfInViewer(buf, currentBlobUrl);
       } else {
-        viewerImageWrap.style.display = 'none';
-        viewerZoom.style.display = 'none';
-        viewerFrame.style.display = 'block';
-        viewerFrame.src = blobUrl;
+        setViewerMode('frame');
+        viewerFrame.src = currentBlobUrl;
       }
     }catch(err){
       console.error(err);
