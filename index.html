@@ -284,11 +284,19 @@
   }
   .viewer-frame{flex:1;width:100%;border:none;background:#525659;}
   .viewer-image-wrap{
-    flex:1;width:100%;overflow:auto;background:#525659;
-    display:flex;align-items:center;justify-content:center;
-    -webkit-overflow-scrolling:touch;touch-action:pinch-zoom;
+    flex:1;min-height:0;width:100%;overflow:auto;background:#525659;direction:ltr;
+    display:flex;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;
   }
-  .viewer-image{max-width:100%;max-height:100%;object-fit:contain;display:block;}
+  /* margin:auto centers the image when it is smaller than the screen, and lets you scroll
+     to every edge when it is larger (unlike align-items:center, which hides the top/left). */
+  .viewer-image{margin:auto;display:block;flex:none;max-width:none;user-select:none;-webkit-user-drag:none;}
+  .viewer-zoom{display:none;align-items:center;gap:6px;}
+  .viewer-zoom button{
+    min-width:40px;height:40px;padding:0 12px;border-radius:9px;border:1px solid var(--border);
+    background:var(--surface-2);color:var(--text);font-family:inherit;font-size:1.05rem;font-weight:700;cursor:pointer;
+  }
+  .viewer-zoom button:hover{background:var(--border);}
+  .viewer-zoom .zoom-reset{font-size:0.8rem;}
   .spinner{
     width:16px;height:16px;border:2.5px solid rgba(255,255,255,0.4);border-top-color:#fff;
     border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle;
@@ -423,6 +431,11 @@
 <div class="viewer-overlay" id="viewerOverlay">
   <div class="viewer-bar">
     <button type="button" class="viewer-close-btn" id="viewerCloseBtn">✕ إغلاق والعودة</button>
+    <div class="viewer-zoom" id="viewerZoom">
+      <button type="button" id="zoomOutBtn" aria-label="تصغير">−</button>
+      <button type="button" class="zoom-reset" id="zoomResetBtn">ملاءمة الشاشة</button>
+      <button type="button" id="zoomInBtn" aria-label="تكبير">＋</button>
+    </div>
     <a class="viewer-external-link" id="viewerExternalLink" href="#" target="_blank" rel="noopener">↗️ فتح في تبويب جديد</a>
   </div>
   <div class="viewer-hint">إذا لم يظهر الملف خلال ثوانٍ، اضغطي "↗️ فتح في تبويب جديد" أعلاه</div>
@@ -575,6 +588,54 @@
   const viewerFrame = document.getElementById('viewerFrame');
   const viewerImageWrap = document.getElementById('viewerImageWrap');
   const viewerImage = document.getElementById('viewerImage');
+  const viewerZoom = document.getElementById('viewerZoom');
+
+  // ---- Image viewer: fits the whole image on screen, then zoom in/out ----
+  let imgZoom = 1; // 1 = whole image visible; bigger = zoomed in
+  const MAX_ZOOM = 8;
+
+  function layoutImage(){
+    const nw = viewerImage.naturalWidth, nh = viewerImage.naturalHeight;
+    if(!nw || !nh) return;
+    const cw = viewerImageWrap.clientWidth, ch = viewerImageWrap.clientHeight;
+    if(!cw || !ch) return;
+    const fit = Math.min(cw / nw, ch / nh);
+    viewerImage.style.width = Math.round(nw * fit * imgZoom) + 'px';
+    viewerImage.style.height = 'auto';
+  }
+  function setImageZoom(z){
+    const w = viewerImageWrap;
+    const cx = w.scrollWidth ? (w.scrollLeft + w.clientWidth / 2) / w.scrollWidth : 0.5;
+    const cy = w.scrollHeight ? (w.scrollTop + w.clientHeight / 2) / w.scrollHeight : 0.5;
+    imgZoom = Math.max(1, Math.min(MAX_ZOOM, z));
+    layoutImage();
+    w.scrollLeft = cx * w.scrollWidth - w.clientWidth / 2;
+    w.scrollTop = cy * w.scrollHeight - w.clientHeight / 2;
+  }
+  viewerImage.addEventListener('load', ()=>{ imgZoom = 1; layoutImage(); });
+  window.addEventListener('resize', layoutImage);
+  document.getElementById('zoomInBtn').addEventListener('click', ()=> setImageZoom(imgZoom * 1.5));
+  document.getElementById('zoomOutBtn').addEventListener('click', ()=> setImageZoom(imgZoom / 1.5));
+  document.getElementById('zoomResetBtn').addEventListener('click', ()=> setImageZoom(1));
+  viewerImage.addEventListener('dblclick', ()=> setImageZoom(imgZoom > 1 ? 1 : 2.5));
+  viewerImageWrap.addEventListener('wheel', (e)=>{
+    if(!e.ctrlKey) return;            // plain wheel keeps scrolling
+    e.preventDefault();
+    setImageZoom(imgZoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
+  }, {passive:false});
+  // Two-finger pinch on touch screens
+  let pinchStartDist = 0, pinchStartZoom = 1;
+  const touchDist = (t)=> Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  viewerImageWrap.addEventListener('touchstart', (e)=>{
+    if(e.touches.length === 2){ pinchStartDist = touchDist(e.touches); pinchStartZoom = imgZoom; }
+  }, {passive:true});
+  viewerImageWrap.addEventListener('touchmove', (e)=>{
+    if(e.touches.length === 2 && pinchStartDist){
+      e.preventDefault();
+      setImageZoom(pinchStartZoom * touchDist(e.touches) / pinchStartDist);
+    }
+  }, {passive:false});
+  viewerImageWrap.addEventListener('touchend', ()=>{ pinchStartDist = 0; });
   const viewerExternalLink = document.getElementById('viewerExternalLink');
   const viewerCloseBtn = document.getElementById('viewerCloseBtn');
 
@@ -597,9 +658,12 @@
       viewerFrame.style.display = 'none';
       viewerFrame.src = 'about:blank';
       viewerImageWrap.style.display = 'flex';
+      viewerZoom.style.display = 'flex';
+      imgZoom = 1;
       viewerImage.src = url;
     } else {
       viewerImageWrap.style.display = 'none';
+      viewerZoom.style.display = 'none';
       viewerImage.src = '';
       viewerFrame.style.display = 'block';
       viewerFrame.src = url;
@@ -610,6 +674,7 @@
     viewerOverlay.classList.remove('open');
     viewerFrame.src = 'about:blank';
     viewerImage.src = '';
+    viewerZoom.style.display = 'none';
   }
   viewerCloseBtn.addEventListener('click', closeViewer);
 
@@ -627,9 +692,12 @@
       if(looksLikeImage(dataUrl, blob.type)){
         viewerFrame.style.display = 'none';
         viewerImageWrap.style.display = 'flex';
+        viewerZoom.style.display = 'flex';
+        imgZoom = 1;
         viewerImage.src = blobUrl;
       } else {
         viewerImageWrap.style.display = 'none';
+        viewerZoom.style.display = 'none';
         viewerFrame.style.display = 'block';
         viewerFrame.src = blobUrl;
       }
