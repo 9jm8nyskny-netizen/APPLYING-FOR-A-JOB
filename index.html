@@ -335,8 +335,9 @@
         <input type="tel" id="fPhone" placeholder="05xxxxxxxx">
       </div>
       <div class="field">
-        <label>الوظيفة المتقدم عليها <span class="req">*</span></label>
-        <input type="text" id="fRole" required placeholder="مثال: مهندس تصميم داخلي">
+        <label>الوظيفة المتقدم عليها</label>
+        <input type="text" id="fRole" placeholder="مثال: مهندس تصميم داخلي">
+        <span class="hint">اتركيه فارغًا لنقل المتقدم إلى "بدون مسمى وظيفي"</span>
       </div>
       <div class="field">
         <label>📄 رابط السيرة الذاتية (CV)</label>
@@ -1088,7 +1089,8 @@
     e.preventDefault();
     const name = document.getElementById('fName').value.trim();
     const nationality = document.getElementById('fNationality').value.trim();
-    const role = document.getElementById('fRole').value.trim();
+    let role = document.getElementById('fRole').value.trim();
+    if(role === 'بدون مسمى وظيفي') role = ''; // same as leaving it empty
     const phone = document.getElementById('fPhone').value.trim();
     const notes = document.getElementById('fNotes').value.trim();
     const cvUrl = document.getElementById('fCvUrl').value.trim();
@@ -1096,8 +1098,8 @@
     const photoUrl = document.getElementById('fPhotoUrl').value.trim();
     const rating = parseInt(fRating.value, 10) || 0;
 
-    if(!name || !role){
-      showToast('يرجى إدخال الاسم والوظيفة', true);
+    if(!name){
+      showToast('يرجى إدخال الاسم', true);
       return;
     }
     if(!isValidUrl(cvUrl)){
