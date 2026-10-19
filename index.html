@@ -188,6 +188,25 @@
   .spacer-actions{margin-inline-start:auto;display:flex;gap:4px;}
   .empty-state{text-align:center;padding:70px 20px;color:var(--text-muted);}
   .empty-state .big-icon{font-size:2.6rem;margin-bottom:10px;}
+  .optimize-banner{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    background:#ecfdf5;border:1px solid #6ee7b7;color:#065f46;border-radius:12px;
+    padding:12px 14px;font-size:0.85rem;margin-bottom:14px;line-height:1.6;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]) .optimize-banner{background:#0d2b22;border-color:#1f6f55;color:#6ee7b7;}
+  }
+  .optimize-banner button{
+    border:none;border-radius:9px;padding:9px 16px;font-family:inherit;font-size:0.85rem;font-weight:700;
+    background:#059669;color:#fff;cursor:pointer;
+  }
+  .optimize-banner button:disabled{opacity:0.6;cursor:not-allowed;}
+  .tech-info{margin-top:14px;font-size:0.78rem;color:var(--text-muted);}
+  .tech-info summary{cursor:pointer;font-weight:700;}
+  .tech-info pre{
+    direction:ltr;text-align:left;white-space:pre-wrap;word-break:break-all;margin:8px 0 0;
+    background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:10px;max-height:180px;overflow:auto;
+  }
   .loading-spinner{
     width:38px;height:38px;margin:0 auto 14px;border-radius:50%;
     border:4px solid var(--border);border-top-color:var(--accent);animation:spin .8s linear infinite;
@@ -304,6 +323,7 @@
   </header>
 
   <div id="bannerArea"></div>
+  <div id="optimizeArea"></div>
   <div class="list" id="list"></div>
 </div>
 
@@ -364,6 +384,10 @@
         <label>ملاحظات</label>
         <textarea id="fNotes" placeholder="أي ملاحظات إضافية..."></textarea>
       </div>
+      <details class="tech-info" id="techInfo" style="display:none;">
+        <summary>🔧 معلومات فنية عن البيانات المستلمة</summary>
+        <pre id="techInfoPre"></pre>
+      </details>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" id="cancelBtn">إلغاء</button>
         <button type="submit" class="btn btn-primary" id="saveBtn">حفظ المتقدم</button>
@@ -416,7 +440,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
   import {
     getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-    collection, addDoc, updateDoc, deleteDoc, doc,
+    collection, addDoc, updateDoc, deleteDoc, doc, getDoc, setDoc, deleteField,
     onSnapshot, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
@@ -455,12 +479,16 @@
   let viewMode = 'active'; // 'active' | 'trash'
   let selectedRole = null;
   let isLoading = true; // true until the first real data arrives
+  let loadingSlow = false;
+  const fileCache = {}; // applicantId -> heavy files loaded on demand
+  const FILE_FIELDS = [['cvUrl','cvInFiles'],['portfolioUrl','portfolioInFiles'],['photoUrl','photoInFiles']];
   const addApplicantDisabled = true; // temporarily disabled per request; set back to false to re-enable
 
   const listEl = document.getElementById('list');
   const subtitleCount = document.getElementById('subtitleCount');
   const bannerArea = document.getElementById('bannerArea');
   const searchInput = document.getElementById('searchInput');
+  const optimizeArea = document.getElementById('optimizeArea');
   const roleFilterRow = document.getElementById('roleFilterRow');
   const trashBtn = document.getElementById('trashBtn');
   const trashLabel = document.getElementById('trashLabel');
@@ -749,6 +777,142 @@
     }catch(e){ return ''; }
   }
 
+  // Heavy files (embedded base64) live in a separate "applicantFiles" collection after optimization,
+  // so the main list stays light. They are fetched only when someone actually opens a file.
+  async function getStoredFile(rec, field){
+    const flag = (FILE_FIELDS.find(f => f[0] === field) || [])[1];
+    if(!flag || !rec[flag]) return null;
+    try{
+      if(!fileCache[rec.id]){
+        const snap = await getDoc(doc(db, 'applicantFiles', rec.id));
+        fileCache[rec.id] = snap.exists() ? snap.data() : {};
+      }
+      return fileCache[rec.id][field] || null;
+    }catch(err){
+      console.error(err);
+      return null;
+    }
+  }
+
+  // The applicant form may name its file fields differently (cv, resume, portfolioFile, photo ...).
+  // If the standard fields are empty, look for a file/link stored under a similar name.
+  function normalizeApplicant(rec){
+    const wanted = [
+      ['cvUrl',        'cvInFiles',        k => /cv|resume|سيرة/i.test(k)],
+      ['portfolioUrl', 'portfolioInFiles', k => /portfolio|works?|أعمال/i.test(k)],
+      ['photoUrl',     'photoInFiles',     k => /photo|image|picture|avatar|img|صورة/i.test(k)]
+    ];
+    const known = new Set(['cvUrl','portfolioUrl','photoUrl','thumbUrl']);
+    const alias = {};
+    wanted.forEach(([field, flag, test])=>{
+      if(rec[field] || rec[flag]) return;
+      for(const [key, val] of Object.entries(rec)){
+        if(known.has(key) || key === 'id' || typeof val !== 'string' || !val) continue;
+        if(!(val.startsWith('data:') || /^https?:\/\//i.test(val))) continue;
+        if(Object.values(alias).includes(key)) continue;
+        if(test(key)){ rec[field] = val; alias[field] = key; break; }
+      }
+    });
+    if(Object.keys(alias).length) rec.__alias = alias;
+    return rec;
+  }
+
+  function describeRecord(a){
+    return Object.keys(a).filter(k => k !== 'id' && k !== '__alias').map(k=>{
+      const v = a[k];
+      if(typeof v === 'string' && v.length > 300) return `${k}: نص كبير (${Math.round(v.length/1024)} KB)${a.__alias && Object.values(a.__alias).includes(k) ? ' ← مُستخدم كملف' : ''}`;
+      if(v && typeof v === 'object' && typeof v.toMillis === 'function') return `${k}: تاريخ`;
+      if(v === null || v === '') return `${k}: فارغ`;
+      return `${k}: ${String(v).slice(0,40)}`;
+    }).join('\n');
+  }
+
+  function isHeavy(a){
+    return FILE_FIELDS.some(([f]) => typeof a[f] === 'string' && a[f].startsWith('data:'));
+  }
+
+  // Small square JPEG thumbnail for the avatar (a few KB instead of a whole photo).
+  function makeThumb(dataUrl){
+    return new Promise(resolve=>{
+      const img = new Image();
+      const timer = setTimeout(()=> resolve(null), 8000);
+      img.onload = ()=>{
+        clearTimeout(timer);
+        try{
+          const size = 120;
+          const canvas = document.createElement('canvas');
+          canvas.width = size; canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          const side = Math.min(img.width, img.height);
+          const sx = (img.width - side) / 2, sy = (img.height - side) / 2;
+          ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+          resolve(canvas.toDataURL('image/jpeg', 0.75));
+        }catch(e){ resolve(null); }
+      };
+      img.onerror = ()=>{ clearTimeout(timer); resolve(null); };
+      img.src = dataUrl;
+    });
+  }
+
+  function updateOptimizeBanner(){
+    const heavy = applicants.filter(isHeavy);
+    if(isLoading || viewMode !== 'active' || heavy.length === 0){
+      if(!optimizeArea.dataset.busy) optimizeArea.innerHTML = '';
+      return;
+    }
+    if(optimizeArea.dataset.busy) return;
+    optimizeArea.innerHTML = `
+      <div class="optimize-banner">
+        <div>⚡ يوجد <b>${heavy.length}</b> متقدم بملفات مدمجة ثقيلة تُبطئ فتح الصفحة. اضغطي لتحسين السرعة (مرة واحدة، لا يحذف أي ملف).</div>
+        <button type="button" id="optimizeBtn">تحسين السرعة الآن</button>
+      </div>`;
+    document.getElementById('optimizeBtn').addEventListener('click', optimizeStorage);
+  }
+
+  async function optimizeStorage(){
+    const heavy = applicants.filter(isHeavy);
+    if(!heavy.length) return;
+    if(!confirm(`سيتم نقل الملفات الثقيلة لـ ${heavy.length} متقدم إلى مكان مخصص لها لتسريع الصفحة. لن يُحذف أي ملف، وستبقى كلها قابلة للفتح. هل تريدين المتابعة؟`)) return;
+    optimizeArea.dataset.busy = '1';
+    let done = 0;
+    const setProgress = ()=>{
+      optimizeArea.innerHTML = `<div class="optimize-banner"><div>⏳ جاري التحسين... ${done} / ${heavy.length} — لا تغلقي الصفحة</div></div>`;
+    };
+    setProgress();
+    try{
+      for(const a of heavy){
+        const fileData = {};
+        const updates = {};
+        for(const [field, flag] of FILE_FIELDS){
+          const v = a[field];
+          if(typeof v === 'string' && v.startsWith('data:')){
+            fileData[field] = v;
+            const srcKey = (a.__alias && a.__alias[field]) || field;
+            updates[srcKey] = deleteField();
+            updates[flag] = true;
+          }
+        }
+        if(fileData.photoUrl){
+          const thumb = await makeThumb(fileData.photoUrl);
+          if(thumb) updates.thumbUrl = thumb;
+        }
+        // Safe order: copy the files first, only then slim down the main record.
+        await setDoc(doc(db, 'applicantFiles', a.id), fileData, { merge: true });
+        await updateDoc(doc(db, 'applicants', a.id), updates);
+        done++;
+        setProgress();
+      }
+      delete optimizeArea.dataset.busy;
+      optimizeArea.innerHTML = '';
+      showToast('تم تحسين السرعة بنجاح ✅');
+    }catch(err){
+      console.error(err);
+      delete optimizeArea.dataset.busy;
+      bannerArea.innerHTML = `<div class="banner">⚠️ توقف التحسين بعد ${done} من ${heavy.length}. غالبًا السبب أن قواعد الأمان في Firebase لا تسمح بالمجموعة الجديدة <b>applicantFiles</b> — أضيفي لها قاعدة قراءة وكتابة (كما فعلتِ لـ applicants) ثم أعيدي المحاولة. لم يضِع أي ملف.</div>`;
+      updateOptimizeBanner();
+    }
+  }
+
   // Builds a WhatsApp chat link from a phone number. Saudi local numbers (05xxxxxxxx / 5xxxxxxxx)
   // get the 966 country code; numbers already written with + or 00 are used as international.
   function whatsappUrl(phone){
@@ -766,6 +930,9 @@
 
   function avatarHtmlFor(a){
     const initials = (a.name || '').trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
+    if(a.thumbUrl){
+      return `<img class="avatar" src="${a.thumbUrl}" data-fallback-initials="${escapeHtml(initials) || '؟'}" alt="${escapeHtml(a.name)}" onerror="window.__avatarImgFallback(this)">`;
+    }
     if(a.photoUrl){
       const initialsAttr = escapeHtml(initials) || '؟';
       // Embedded (data:) photos can be huge — use them directly, without copying them into extra attributes.
@@ -781,15 +948,17 @@
 
   function render(){
     if(isLoading){
+      optimizeArea.innerHTML = '';
       subtitleCount.textContent = 'جاري تحميل المتقدمين...';
       listEl.innerHTML = `
         <div class="empty-state">
           <div class="loading-spinner"></div>
           <h3>جاري تحميل المتقدمين...</h3>
-          <div>لحظات ويظهرون</div>
+          <div>${loadingSlow ? 'التحميل أبطأ من المعتاد، تأكدي من اتصال الإنترنت وانتظري قليلًا' : 'لحظات ويظهرون'}</div>
         </div>`;
       return;
     }
+    updateOptimizeBanner();
     const q = (searchInput.value || '').trim().toLowerCase();
     const source = applicants.filter(a => viewMode === 'trash' ? !!a.deleted : !a.deleted);
     let items = source.slice();
@@ -909,8 +1078,8 @@
     }
 
     listEl.innerHTML = items.map(a => {
-      const cvUrl = a.cvUrl || null;
-      const pfUrl = a.portfolioUrl || null;
+      const cvUrl = (a.cvUrl || a.cvInFiles) ? true : null;
+      const pfUrl = (a.portfolioUrl || a.portfolioInFiles) ? true : null;
       const interviewLabel = a.interviewType === 'remote' ? '📹 عن بُعد (زوم)' : (a.interviewType === 'onsite' ? '🏢 حضورية' : '');
       return `
       <div class="card ${a.approved ? 'approved' : ''}" data-id="${a.id}">
@@ -928,8 +1097,8 @@
         </div>
         ${a.notes ? `<div class="applicant-notes">${escapeHtml(a.notes)}</div>` : ''}
         <div class="card-actions">
-          <a class="file-btn ${cvUrl ? '' : 'missing'}" href="#" data-id="${a.id}" data-field="cvUrl">📄 فتح السيرة الذاتية</a>
-          <a class="file-btn ${pfUrl ? '' : 'missing'}" href="#" data-id="${a.id}" data-field="portfolioUrl">📁 فتح الأعمال</a>
+          <a class="file-btn ${cvUrl ? '' : 'missing'}" ${cvUrl ? '' : 'title="لم يصل ملف سيرة ذاتية من المتقدم"'} href="#" data-id="${a.id}" data-field="cvUrl">📄 فتح السيرة الذاتية</a>
+          <a class="file-btn ${pfUrl ? '' : 'missing'}" ${pfUrl ? '' : 'title="لم يصل ملف أعمال من المتقدم"'} href="#" data-id="${a.id}" data-field="portfolioUrl">📁 فتح الأعمال</a>
           ${whatsappUrl(a.phone) ? `<a class="wa-btn" href="${whatsappUrl(a.phone)}" target="_blank" rel="noopener">💬 مراسلة واتساب</a>` : ''}
           <button class="approve-btn ${a.approved ? 'approved' : ''}" data-id="${a.id}">${a.approved ? '✅ مناسب' : '☐ وضع علامة مناسب'}</button>
           <div class="spacer-actions">
@@ -945,16 +1114,19 @@
     });
     listEl.querySelectorAll('.file-btn').forEach(a=>{
       if(a.classList.contains('missing')) return;
-      a.addEventListener('click', (e)=>{
+      a.addEventListener('click', async (e)=>{
         e.preventDefault();
         const rec = applicants.find(x => x.id === a.dataset.id);
-        const raw = rec && rec[a.dataset.field];
-        if(!raw) return;
+        if(!rec) return;
+        let raw = rec[a.dataset.field];
+        if(!raw){
+          showToast('جاري تحميل الملف...');
+          raw = await getStoredFile(rec, a.dataset.field);
+        }
+        if(!raw){ showToast('تعذر العثور على الملف', true); return; }
         if(raw.startsWith('data:')){
           openDataUrlInViewer(raw);
         } else {
-          // Every link opens inside our own viewer panel, with a visible "✕ إغلاق"
-          // and an "↗️ فتح في تبويب جديد" fallback.
           openViewer(getOpenUrl(raw));
         }
       });
@@ -978,7 +1150,12 @@
     img.removeAttribute('data-candidates');
     img.removeAttribute('data-idx');
     document.getElementById('photoPreviewPlaceholder').style.display = 'flex';
+    document.getElementById('fCvUrl').placeholder = 'رابط Google Drive أو LinkedIn...';
+    document.getElementById('fPortfolioUrl').placeholder = 'رابط Google Drive أو LinkedIn...';
+    document.getElementById('fPhotoUrl').placeholder = 'https://...';
     modalTitle.textContent = 'إضافة متقدم جديد';
+    document.getElementById('techInfo').style.display = 'none';
+    document.getElementById('techInfo').open = false;
   }
 
   function openAdd(){
@@ -992,6 +1169,8 @@
     resetForm();
     editingId = id;
     modalTitle.textContent = 'تعديل بيانات المتقدم';
+    document.getElementById('techInfoPre').textContent = describeRecord(a);
+    document.getElementById('techInfo').style.display = 'block';
     document.getElementById('fName').value = a.name || '';
     document.getElementById('fNationality').value = a.nationality || '';
     document.getElementById('fPhone').value = a.phone || '';
@@ -1000,7 +1179,17 @@
     document.getElementById('fCvUrl').value = a.cvUrl || '';
     document.getElementById('fPortfolioUrl').value = a.portfolioUrl || '';
     document.getElementById('fPhotoUrl').value = a.photoUrl || '';
+    const keepHint = 'يوجد ملف محفوظ — اتركيه فارغًا للإبقاء عليه';
+    if(a.cvInFiles) document.getElementById('fCvUrl').placeholder = keepHint;
+    if(a.portfolioInFiles) document.getElementById('fPortfolioUrl').placeholder = keepHint;
+    if(a.photoInFiles) document.getElementById('fPhotoUrl').placeholder = keepHint;
     setStars(a.rating || 0);
+    if(!a.photoUrl && a.thumbUrl){
+      const img = document.getElementById('photoPreviewImg');
+      img.src = a.thumbUrl;
+      img.style.display = 'block';
+      document.getElementById('photoPreviewPlaceholder').style.display = 'none';
+    }
     if(a.photoUrl){
       const candidates = buildImageCandidates(a.photoUrl);
       const img = document.getElementById('photoPreviewImg');
@@ -1046,6 +1235,7 @@
     if(!confirm(`هل تريدين حذف بيانات "${a.name}" نهائيًا؟ لا يمكن التراجع عن هذا الإجراء إطلاقًا.`)) return;
     try{
       await deleteDoc(doc(db, "applicants", id));
+      try{ await deleteDoc(doc(db, "applicantFiles", id)); }catch(e){ /* may not exist */ }
       showToast('تم الحذف النهائي');
     }catch(err){
       console.error(err);
@@ -1120,13 +1310,18 @@
 
     try{
       if(editingId){
-        const data = {
-          name, role, phone, notes, nationality,
-          cvUrl: cvUrl || null,
-          portfolioUrl: portfolioUrl || null,
-          photoUrl: photoUrl || null,
-          rating,
-        };
+        const existing = applicants.find(x => x.id === editingId) || {};
+        const data = { name, role, phone, notes, nationality, rating };
+        // For each file field: a new value replaces the old one; empty keeps a stored file; otherwise clears.
+        [['cvUrl','cvInFiles',cvUrl],['portfolioUrl','portfolioInFiles',portfolioUrl],['photoUrl','photoInFiles',photoUrl]].forEach(([field, flag, value])=>{
+          if(value){
+            data[field] = value;
+            if(existing[flag]) data[flag] = false;
+            if(field === 'photoUrl') data.thumbUrl = null;
+          } else if(!existing[flag]){
+            data[field] = null;
+          }
+        });
         await updateDoc(doc(db, "applicants", editingId), data);
         showToast('تم تحديث بيانات المتقدم');
       } else {
@@ -1159,11 +1354,11 @@
   }
 
   function init(){
-    // Safety net: never leave the loading screen up forever (e.g. when offline with an empty cache).
-    setTimeout(finishLoading, 12000);
+    // If loading drags on, say so — but keep waiting instead of wrongly showing "no applicants".
+    setTimeout(()=>{ if(isLoading){ loadingSlow = true; render(); } }, 10000);
     try{
       onSnapshot(applicantsCol, (snap) => {
-        applicants = snap.docs.map(d => Object.assign({id: d.id}, d.data()));
+        applicants = snap.docs.map(d => normalizeApplicant(Object.assign({id: d.id}, d.data())));
         // An empty answer that came only from the (still empty) local cache isn't real yet — wait for the server.
         if(snap.metadata.fromCache && snap.empty && isLoading) return;
         isLoading = false;
