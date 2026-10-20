@@ -533,10 +533,22 @@
   let approveTargetId = null;
   let selectedInterviewType = null;
 
+  // Turns a Firebase error into a message that says what actually went wrong.
+  function explainSaveError(err){
+    const code = (err && err.code) || '';
+    const msg = String((err && err.message) || '');
+    if(code === 'permission-denied') return 'تم رفض الحفظ بسبب قواعد الأمان في Firebase — تأكدي أن القواعد تسمح بالكتابة على مجموعة applicants.';
+    if(/size|too large|exceeds|longer than|maximum/i.test(msg)) return 'حجم بيانات هذا المتقدم كبير جدًا (الحد 1 ميجابايت للسجل). اضغطي "تحسين السرعة الآن" إن ظهر الشريط الأخضر، أو احذفي أحد الملفات الكبيرة ثم أعيدي الحفظ.';
+    if(code === 'unavailable' || code === 'deadline-exceeded' || /offline|network/i.test(msg)) return 'تعذر الاتصال بالإنترنت، تأكدي من الاتصال وحاولي مرة أخرى.';
+    if(code === 'not-found') return 'هذا المتقدم لم يعد موجودًا (ربما حُذف نهائيًا).';
+    return 'حدث خطأ أثناء الحفظ' + (code ? ` (${code})` : '') + '، حاولي مرة أخرى.';
+  }
+
   function showToast(msg, isError){
     toastEl.textContent = msg;
     toastEl.className = 'toast show' + (isError ? ' error' : '');
-    setTimeout(()=>{ toastEl.className = 'toast'; }, 2600);
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(()=>{ toastEl.className = 'toast'; }, Math.max(2600, String(msg).length * 70));
   }
 
   function escapeHtml(s){
@@ -1536,17 +1548,32 @@
     try{
       if(editingId){
         const existing = applicants.find(x => x.id === editingId) || {};
-        const data = { name, role, phone, notes, nationality, rating };
-        // For each file field: a new value replaces the old one; empty keeps a stored file; otherwise clears.
+        // Send ONLY what actually changed. Re-sending big embedded files that were not touched
+        // can push a record over Firestore's 1 MB-per-record limit and make the save fail.
+        const data = {};
+        [['name',name],['role',role],['phone',phone],['notes',notes],['nationality',nationality]].forEach(([k, v])=>{
+          if((existing[k] ?? '') !== v) data[k] = v;
+        });
+        if((existing.rating || 0) !== rating) data.rating = rating;
+        // File fields: a new value replaces the old one; empty keeps a stored file; clearing removes it.
         [['cvUrl','cvInFiles',cvUrl],['portfolioUrl','portfolioInFiles',portfolioUrl],['photoUrl','photoInFiles',photoUrl]].forEach(([field, flag, value])=>{
+          const aliasKey = existing.__alias && existing.__alias[field];
           if(value){
+            if(value === existing[field]) return;        // unchanged
             data[field] = value;
             if(existing[flag]) data[flag] = false;
             if(field === 'photoUrl') data.thumbUrl = null;
-          } else if(!existing[flag]){
+            if(aliasKey) data[aliasKey] = null;
+          } else if(!existing[flag] && existing[field]){
             data[field] = null;
+            if(aliasKey) data[aliasKey] = null;
           }
         });
+        if(Object.keys(data).length === 0){
+          showToast('لا توجد تغييرات للحفظ');
+          closeModal();
+          return;
+        }
         await updateDoc(doc(db, "applicants", editingId), data);
         showToast('تم تحديث بيانات المتقدم');
       } else {
@@ -1565,7 +1592,7 @@
       closeModal();
     }catch(err){
       console.error(err);
-      showToast('حدث خطأ أثناء الحفظ، تحققي من إعدادات Firebase وحاولي مرة أخرى', true);
+      showToast(explainSaveError(err), true);
     }finally{
       saveBtn.disabled = false;
       saveBtn.textContent = 'حفظ المتقدم';
