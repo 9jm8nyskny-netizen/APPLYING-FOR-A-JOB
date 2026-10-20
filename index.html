@@ -208,6 +208,17 @@
     direction:ltr;text-align:left;white-space:pre-wrap;word-break:break-all;margin:8px 0 0;
     background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:10px;max-height:180px;overflow:auto;
   }
+  .bulk-bar{
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 14px;
+    box-shadow:var(--shadow);
+  }
+  .bulk-bar label{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:0.9rem;cursor:pointer;}
+  .bulk-count{color:var(--text-muted);font-size:0.82rem;margin-inline-end:auto;}
+  .bulk-bar .restore-btn:disabled, .bulk-bar .finalize-btn:disabled{opacity:0.4;cursor:not-allowed;}
+  .sel-box{width:22px;height:22px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;}
+  .card.trashed{cursor:pointer;}
+  .card.trashed.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;}
   .loading-spinner{
     width:38px;height:38px;margin:0 auto 14px;border-radius:50%;
     border:4px solid var(--border);border-top-color:var(--accent);animation:spin .8s linear infinite;
@@ -463,7 +474,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
   import {
     getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-    collection, addDoc, updateDoc, deleteDoc, doc, getDoc, setDoc, deleteField,
+    collection, addDoc, updateDoc, deleteDoc, doc, getDoc, setDoc, deleteField, writeBatch,
     onSnapshot, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
@@ -502,6 +513,7 @@
   let viewMode = 'active'; // 'active' | 'trash'
   let selectedRole = null;
   let isLoading = true; // true until the first real data arrives
+  const trashSelected = new Set(); // ids ticked in the trash view
   let loadingSlow = false;
   const fileCache = {}; // applicantId -> heavy files loaded on demand
   const FILE_FIELDS = [['cvUrl','cvInFiles'],['portfolioUrl','portfolioInFiles'],['photoUrl','photoInFiles']];
@@ -1288,10 +1300,21 @@
     }
 
     if(viewMode === 'trash'){
-      listEl.innerHTML = items.map(a => `
-        <div class="card trashed" data-id="${a.id}">
+      // forget selections that no longer exist
+      const existingIds = new Set(source.map(a => a.id));
+      [...trashSelected].forEach(id => { if(!existingIds.has(id)) trashSelected.delete(id); });
+
+      listEl.innerHTML = `
+        <div class="bulk-bar">
+          <label><input type="checkbox" class="sel-box" id="selectAllTrash"> تحديد الكل</label>
+          <span class="bulk-count" id="bulkCount"></span>
+          <button type="button" class="restore-btn" id="bulkRestoreBtn">↩️ استرجاع المحدد</button>
+          <button type="button" class="finalize-btn" id="bulkDeleteBtn">❌ حذف المحدد نهائيًا</button>
+        </div>` + items.map(a => `
+        <div class="card trashed ${trashSelected.has(a.id) ? 'selected' : ''}" data-id="${a.id}">
           <div class="card-top">
             <div class="card-top-main">
+              <input type="checkbox" class="sel-box row-sel" data-id="${a.id}" ${trashSelected.has(a.id) ? 'checked' : ''}>
               ${avatarHtmlFor(a)}
               <div>
                 <p class="applicant-name">${escapeHtml(a.name)}${a.nationality ? `<span class="nationality-badge">🌍 ${escapeHtml(a.nationality)}</span>` : ''}</p>
@@ -1304,6 +1327,43 @@
             <button class="finalize-btn" data-id="${a.id}">❌ حذف نهائي</button>
           </div>
         </div>`).join('');
+
+      const visibleIds = items.map(a => a.id);
+      const refreshBulkBar = ()=>{
+        const n = visibleIds.filter(id => trashSelected.has(id)).length;
+        const all = document.getElementById('selectAllTrash');
+        all.checked = n > 0 && n === visibleIds.length;
+        all.indeterminate = n > 0 && n < visibleIds.length;
+        document.getElementById('bulkCount').textContent = n ? `تم تحديد ${n} من ${visibleIds.length}` : `${visibleIds.length} في القائمة`;
+        document.getElementById('bulkRestoreBtn').disabled = n === 0;
+        document.getElementById('bulkDeleteBtn').disabled = n === 0;
+      };
+      const setRow = (id, on)=>{
+        if(on) trashSelected.add(id); else trashSelected.delete(id);
+        const card = listEl.querySelector(`.card[data-id="${id}"]`);
+        if(card){
+          card.classList.toggle('selected', on);
+          const cb = card.querySelector('.row-sel');
+          if(cb) cb.checked = on;
+        }
+      };
+      listEl.querySelectorAll('.card.trashed').forEach(card=>{
+        card.addEventListener('click', (e)=>{
+          if(e.target.closest('button') || e.target.classList.contains('row-sel')) return;
+          setRow(card.dataset.id, !trashSelected.has(card.dataset.id));
+          refreshBulkBar();
+        });
+      });
+      listEl.querySelectorAll('.row-sel').forEach(cb=>{
+        cb.addEventListener('change', ()=>{ setRow(cb.dataset.id, cb.checked); refreshBulkBar(); });
+      });
+      document.getElementById('selectAllTrash').addEventListener('change', (e)=>{
+        visibleIds.forEach(id => setRow(id, e.target.checked));
+        refreshBulkBar();
+      });
+      document.getElementById('bulkRestoreBtn').addEventListener('click', ()=> bulkRestore(visibleIds.filter(id => trashSelected.has(id))));
+      document.getElementById('bulkDeleteBtn').addEventListener('click', ()=> bulkDelete(visibleIds.filter(id => trashSelected.has(id))));
+      refreshBulkBar();
 
       listEl.querySelectorAll('.restore-btn').forEach(btn=>{
         btn.addEventListener('click', ()=> restoreApplicant(btn.dataset.id));
@@ -1466,6 +1526,46 @@
     }
   }
 
+  // Runs a Firestore write batch in chunks (a batch is limited to 500 operations).
+  async function runInChunks(ids, apply){
+    for(let i = 0; i < ids.length; i += 400){
+      const batch = writeBatch(db);
+      ids.slice(i, i + 400).forEach(id => apply(batch, id));
+      await batch.commit();
+    }
+  }
+
+  async function bulkRestore(ids){
+    if(!ids.length) return;
+    try{
+      await runInChunks(ids, (batch, id)=> batch.update(doc(db, 'applicants', id), { deleted: false, deletedAt: null }));
+      ids.forEach(id => trashSelected.delete(id));
+      showToast(`تم استرجاع ${ids.length} متقدم`);
+    }catch(err){
+      console.error(err);
+      showToast(explainSaveError(err), true);
+    }
+  }
+
+  async function bulkDelete(ids){
+    if(!ids.length) return;
+    if(!confirm(`هل تريدين حذف ${ids.length} متقدم نهائيًا؟ لا يمكن التراجع عن هذا الإجراء إطلاقًا.`)) return;
+    const withFiles = ids.filter(id => {
+      const a = applicants.find(x => x.id === id);
+      return a && (a.cvInFiles || a.portfolioInFiles || a.photoInFiles);
+    });
+    try{
+      await runInChunks(ids, (batch, id)=> batch.delete(doc(db, 'applicants', id)));
+      // their separately stored files too (best effort)
+      await Promise.allSettled(withFiles.map(id => deleteDoc(doc(db, 'applicantFiles', id))));
+      ids.forEach(id => { trashSelected.delete(id); delete fileCache[id]; });
+      showToast(`تم حذف ${ids.length} متقدم نهائيًا`);
+    }catch(err){
+      console.error(err);
+      showToast(explainSaveError(err), true);
+    }
+  }
+
   async function finalizeDelete(id){
     const a = applicants.find(x => x.id === id);
     if(!a) return;
@@ -1482,6 +1582,7 @@
 
   trashBtn.addEventListener('click', ()=>{
     viewMode = viewMode === 'trash' ? 'active' : 'trash';
+    trashSelected.clear();
     trashLabel.textContent = viewMode === 'trash' ? '↩️ الرجوع للقائمة الرئيسية' : '🗑️ المحذوفات';
     openAddBtn.style.display = (viewMode === 'trash' || addApplicantDisabled) ? 'none' : '';
     render();
