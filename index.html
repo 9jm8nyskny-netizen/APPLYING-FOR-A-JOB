@@ -208,6 +208,8 @@
     width:52px;height:52px;border-radius:50%;object-fit:cover;flex-shrink:0;
     border:1px solid var(--border);background:var(--surface-2);
   }
+  .avatar.has-photo{cursor:zoom-in;transition:transform .12s ease, box-shadow .12s ease;}
+  .avatar.has-photo:hover{transform:scale(1.06);box-shadow:var(--shadow-md);}
   .avatar-placeholder{
     width:52px;height:52px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
     background:var(--primary);color:#fff;font-weight:700;font-size:1.05rem;
@@ -1274,20 +1276,42 @@
   function avatarHtmlFor(a){
     const initials = (a.name || '').trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
     if(a.thumbUrl){
-      return `<img class="avatar" src="${a.thumbUrl}" data-fallback-initials="${escapeHtml(initials) || '؟'}" alt="${escapeHtml(a.name)}" onerror="window.__avatarImgFallback(this)">`;
+      return `<img class="avatar has-photo" data-photo-id="${a.id}" title="اضغطي لعرض الصورة" src="${a.thumbUrl}" data-fallback-initials="${escapeHtml(initials) || '؟'}" alt="${escapeHtml(a.name)}" onerror="window.__avatarImgFallback(this)">`;
     }
     if(a.photoUrl){
       const initialsAttr = escapeHtml(initials) || '؟';
       // Embedded (data:) photos can be huge — use them directly, without copying them into extra attributes.
       if(a.photoUrl.startsWith('data:')){
-        return `<img class="avatar" src="${a.photoUrl}" data-fallback-initials="${initialsAttr}" alt="${escapeHtml(a.name)}" onerror="window.__avatarImgFallback(this)">`;
+        return `<img class="avatar has-photo" data-photo-id="${a.id}" title="اضغطي لعرض الصورة" src="${a.photoUrl}" data-fallback-initials="${initialsAttr}" alt="${escapeHtml(a.name)}" onerror="window.__avatarImgFallback(this)">`;
       }
       const candidates = buildImageCandidates(a.photoUrl);
       const candStr = escapeHtml(JSON.stringify(candidates));
-      return `<img class="avatar" src="${candidates[0]}" data-candidates="${candStr}" data-idx="0" data-fallback-initials="${initialsAttr}" alt="${escapeHtml(a.name)}" onerror="window.__avatarImgFallback(this)">`;
+      return `<img class="avatar has-photo" data-photo-id="${a.id}" title="اضغطي لعرض الصورة" src="${candidates[0]}" data-candidates="${candStr}" data-idx="0" data-fallback-initials="${initialsAttr}" alt="${escapeHtml(a.name)}" onerror="window.__avatarImgFallback(this)">`;
     }
     return `<div class="avatar-placeholder">${escapeHtml(initials) || '؟'}</div>`;
   }
+
+  // Tap a profile photo to see it full size.
+  async function openPhoto(id){
+    const rec = applicants.find(x => x.id === id);
+    if(!rec) return;
+    let src = rec.photoUrl;
+    if(!src && rec.photoInFiles){
+      showToast('جاري تحميل الصورة...');
+      src = await getStoredFile(rec, 'photoUrl');
+    }
+    if(!src) src = rec.thumbUrl;            // small copy as a last resort
+    if(!src){ showToast('لا توجد صورة لهذا المتقدم', true); return; }
+    if(src.startsWith('data:')){ openDataUrlInViewer(src); return; }
+    const fileId = getDriveFileId(src);
+    openViewer(fileId ? `https://lh3.googleusercontent.com/d/${fileId}=w2000` : src, true);
+  }
+  listEl.addEventListener('click', (e)=>{
+    const av = e.target.closest('.avatar[data-photo-id]');
+    if(!av) return;
+    e.stopPropagation();                    // in the trash view, don't also tick the card
+    openPhoto(av.dataset.photoId);
+  }, true);
 
   function render(){
     if(isLoading){
