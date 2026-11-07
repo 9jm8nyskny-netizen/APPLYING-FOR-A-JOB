@@ -5,6 +5,14 @@
 <meta name="color-scheme" content="light">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>المتقدمون للوظائف</title>
+<meta name="theme-color" content="#f6f3ec">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="المتقدمون">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js">
@@ -42,6 +50,7 @@
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
+  html{background:var(--bg);}
   body{
     background:var(--bg); color:var(--text);
     font-family:'Tajawal','Segoe UI',Tahoma,Arial,sans-serif;
