@@ -133,6 +133,11 @@
     background:var(--primary);color:#fff;font-family:inherit;font-size:0.92rem;font-weight:700;cursor:pointer;
   }
   .role-back-btn:hover{filter:brightness(1.08);}
+  .move-all-btn{
+    width:100%;padding:10px 14px;border-radius:10px;border:1px dashed var(--accent);background:transparent;
+    color:var(--accent-dark);font-family:inherit;font-size:0.9rem;font-weight:700;cursor:pointer;
+  }
+  .move-all-btn:hover{background:var(--surface-2);}
   .role-back-title{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:1rem;color:var(--text);}
   .role-filter-row .role-chip{
     width:100%;justify-content:space-between;border-radius:12px;padding:12px 16px;
@@ -516,6 +521,21 @@
       <button type="button" class="btn btn-primary" id="approveConfirmBtn">✅ تأكيد</button>
     </div>
     <button type="button" class="btn btn-danger" id="approveRemoveBtn" style="width:100%;margin-top:10px;display:none;">إزالة علامة "مناسب"</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="moveModalOverlay">
+  <div class="modal" style="max-width:400px;">
+    <h2>نقل المتقدمين بدون مسمى وظيفي</h2>
+    <div class="modal-sub" id="moveModalSub"></div>
+    <div class="field">
+      <label>اختاري الوظيفة</label>
+      <div class="interview-options" id="moveRoleOptions"></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" id="moveCancelBtn">إلغاء</button>
+      <button type="button" class="btn btn-primary" id="moveConfirmBtn">نقل الكل</button>
+    </div>
   </div>
 </div>
 
@@ -1338,8 +1358,11 @@
           <div class="role-back-bar">
             <button type="button" class="role-back-btn" id="roleBackBtn">→ رجوع للوظائف</button>
             <div class="role-back-title"><span>${escapeHtml(selectedRole)}</span><span class="role-chip-count">${roleCounts[selectedRole]}</span></div>
+            ${selectedRole === NO_ROLE ? `<button type="button" class="move-all-btn" id="moveAllBtn">📦 نقل الكل إلى وظيفة</button>` : ''}
           </div>`;
         document.getElementById('roleBackBtn').addEventListener('click', goBackToRoles);
+        const moveAllBtn = document.getElementById('moveAllBtn');
+        if(moveAllBtn) moveAllBtn.addEventListener('click', ()=> openMoveModal(roleList.filter(r => r !== NO_ROLE)));
       } else {
         roleFilterRow.innerHTML = roleList.map(r => `
           <button type="button" class="role-chip" data-role="${escapeHtml(r)}"><span>${escapeHtml(r)}</span><span class="role-chip-count">${roleCounts[r]}</span></button>
@@ -1639,6 +1662,49 @@
   }
 
   // Runs a Firestore write batch in chunks (a batch is limited to 500 operations).
+  // ---- Move every applicant with no job title into one job ----
+  const moveModalOverlay = document.getElementById('moveModalOverlay');
+  const moveRoleOptions = document.getElementById('moveRoleOptions');
+  const moveConfirmBtn = document.getElementById('moveConfirmBtn');
+  let moveTarget = null;
+  const noRoleIds = ()=> applicants.filter(a => !a.deleted && !(a.role || '').trim()).map(a => a.id);
+
+  function openMoveModal(roles){
+    moveTarget = null;
+    document.getElementById('moveModalSub').textContent = `سيتم نقل ${noRoleIds().length} متقدم إلى الوظيفة التي تختارينها.`;
+    moveRoleOptions.innerHTML = roles.map(r => `<button type="button" class="interview-opt" data-role="${escapeHtml(r)}">${escapeHtml(r)}</button>`).join('');
+    moveRoleOptions.querySelectorAll('.interview-opt').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        moveTarget = btn.dataset.role;
+        moveRoleOptions.querySelectorAll('.interview-opt').forEach(b => b.classList.toggle('selected', b === btn));
+      });
+    });
+    moveModalOverlay.classList.add('open');
+  }
+  const closeMoveModal = ()=> moveModalOverlay.classList.remove('open');
+  document.getElementById('moveCancelBtn').addEventListener('click', closeMoveModal);
+  moveModalOverlay.addEventListener('click', (e)=>{ if(e.target === moveModalOverlay) closeMoveModal(); });
+
+  moveConfirmBtn.addEventListener('click', async ()=>{
+    if(!moveTarget){ showToast('اختاري الوظيفة أولًا', true); return; }
+    const ids = noRoleIds();
+    if(!ids.length){ closeMoveModal(); return; }
+    moveConfirmBtn.disabled = true;
+    moveConfirmBtn.innerHTML = '<span class="spinner"></span> جارٍ النقل...';
+    try{
+      await runInChunks(ids, (batch, id)=> batch.update(doc(db, 'applicants', id), { role: moveTarget }));
+      closeMoveModal();
+      showToast(`تم نقل ${ids.length} متقدم إلى "${moveTarget}"`);
+      goBackToRoles();
+    }catch(err){
+      console.error(err);
+      showToast(explainSaveError(err), true);
+    }finally{
+      moveConfirmBtn.disabled = false;
+      moveConfirmBtn.textContent = 'نقل الكل';
+    }
+  });
+
   async function runInChunks(ids, apply){
     for(let i = 0; i < ids.length; i += 400){
       const batch = writeBatch(db);
