@@ -210,6 +210,31 @@
   }
   .avatar.has-photo{cursor:zoom-in;transition:transform .12s ease, box-shadow .12s ease;}
   .avatar.has-photo:hover{transform:scale(1.06);box-shadow:var(--shadow-md);}
+  /* WhatsApp-style profile photo popup */
+  .photo-pop{
+    position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:20px;
+    background:rgba(10,12,16,0);backdrop-filter:blur(0);-webkit-backdrop-filter:blur(0);
+    visibility:hidden;transition:background .2s ease, backdrop-filter .2s ease, visibility 0s linear .2s;
+  }
+  .photo-pop.open{background:rgba(10,12,16,0.62);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);visibility:visible;transition-delay:0s;}
+  .photo-pop-card{
+    width:min(82vw, 380px);border-radius:6px;overflow:hidden;background:#1d232b;
+    box-shadow:0 18px 50px rgba(0,0,0,0.45);transform:scale(.55);opacity:0;
+    transition:transform .22s cubic-bezier(.2,.8,.3,1.1), opacity .18s ease;
+  }
+  .photo-pop.open .photo-pop-card{transform:scale(1);opacity:1;}
+  .photo-pop-name{
+    padding:10px 14px;color:#fff;font-weight:700;font-size:1rem;background:rgba(0,0,0,0.35);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .photo-pop-img-wrap{position:relative;width:100%;aspect-ratio:1/1;background:#2a313b;}
+  .photo-pop-img-wrap img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;transition:opacity .15s ease;}
+  .photo-pop-img-wrap img.ready{opacity:1;}
+  .photo-pop-spin{
+    position:absolute;top:50%;left:50%;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;
+    border:3px solid rgba(255,255,255,0.25);border-top-color:#fff;animation:spin .7s linear infinite;
+  }
+  .photo-pop-img-wrap img.ready + .photo-pop-spin{display:none;}
   .avatar-placeholder{
     width:52px;height:52px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
     background:var(--primary);color:#fff;font-weight:700;font-size:1.05rem;
@@ -538,6 +563,13 @@
       <button type="button" class="btn btn-secondary" id="moveCancelBtn">إلغاء</button>
       <button type="button" class="btn btn-primary" id="moveConfirmBtn">نقل الكل</button>
     </div>
+  </div>
+</div>
+
+<div class="photo-pop" id="photoPop" aria-hidden="true">
+  <div class="photo-pop-card">
+    <div class="photo-pop-name" id="photoPopName"></div>
+    <div class="photo-pop-img-wrap"><img id="photoPopImg" alt=""><span class="photo-pop-spin"></span></div>
   </div>
 </div>
 
@@ -1291,21 +1323,50 @@
     return `<div class="avatar-placeholder">${escapeHtml(initials) || '؟'}</div>`;
   }
 
-  // Tap a profile photo to see it full size.
+  // Tap a profile photo: it pops up over the page like WhatsApp; tap outside (or Back) to close.
+  const photoPop = document.getElementById('photoPop');
+  const photoPopImg = document.getElementById('photoPopImg');
+  let photoPopToken = 0;
+  const photoPopOpen = ()=> photoPop.classList.contains('open');
+
+  function closePhotoPop(fromHistory){
+    if(!photoPopOpen()) return;
+    photoPop.classList.remove('open');
+    photoPopToken++;
+    setTimeout(()=>{ if(!photoPopOpen()){ photoPopImg.removeAttribute('src'); photoPopImg.className = ''; } }, 220);
+    if(!fromHistory && history.state && history.state.photo){ history.back(); }
+  }
+
   async function openPhoto(id){
     const rec = applicants.find(x => x.id === id);
     if(!rec) return;
-    let src = rec.photoUrl;
-    if(!src && rec.photoInFiles){
-      showToast('جاري تحميل الصورة...');
-      src = await getStoredFile(rec, 'photoUrl');
+    const token = ++photoPopToken;
+    document.getElementById('photoPopName').textContent = rec.name || '';
+    photoPopImg.className = '';
+    // Show the small copy straight away, then swap in the full photo.
+    const quick = rec.thumbUrl || (rec.photoUrl && !rec.photoUrl.startsWith('data:') ? buildImageCandidates(rec.photoUrl)[0] : rec.photoUrl);
+    if(quick){ photoPopImg.src = quick; }
+    photoPopImg.onload = ()=> photoPopImg.classList.add('ready');
+    photoPop.classList.add('open');
+    try{ history.pushState({role: selectedRole, photo: true}, ''); }catch(e){}
+
+    let full = rec.photoUrl;
+    if(!full && rec.photoInFiles) full = await getStoredFile(rec, 'photoUrl');
+    if(token !== photoPopToken || !full) return;
+    const fileId = getDriveFileId(full);
+    const big = fileId ? `https://lh3.googleusercontent.com/d/${fileId}=w1000` : full;
+    if(big !== photoPopImg.getAttribute('src')){
+      const pre = new Image();
+      pre.onload = ()=>{ if(token === photoPopToken){ photoPopImg.src = big; photoPopImg.classList.add('ready'); } };
+      pre.src = big;
     }
-    if(!src) src = rec.thumbUrl;            // small copy as a last resort
-    if(!src){ showToast('لا توجد صورة لهذا المتقدم', true); return; }
-    if(src.startsWith('data:')){ openDataUrlInViewer(src); return; }
-    const fileId = getDriveFileId(src);
-    openViewer(fileId ? `https://lh3.googleusercontent.com/d/${fileId}=w2000` : src, true);
   }
+  photoPop.addEventListener('click', (e)=>{
+    if(e.target.closest('.photo-pop-card')) return;   // tapping the photo itself keeps it open
+    closePhotoPop(false);
+  });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') closePhotoPop(false); });
+
   listEl.addEventListener('click', (e)=>{
     const av = e.target.closest('.avatar[data-photo-id]');
     if(!av) return;
@@ -1587,6 +1648,7 @@
     }
   }
   window.addEventListener('popstate', (e)=>{
+    if(photoPopOpen()){ closePhotoPop(true); return; }
     const role = (e.state && e.state.role) || null;
     if(viewMode !== 'active') return;
     selectedRole = role;
@@ -1941,7 +2003,7 @@
     const THRESHOLD = 75, MAX = 120;
     let startX = 0, startY = 0, pull = 0, tracking = false, decided = false, pulling = false, busy = false;
 
-    const overlayOpen = ()=> !!document.querySelector('.modal-overlay.open, .viewer-overlay.open');
+    const overlayOpen = ()=> !!document.querySelector('.modal-overlay.open, .viewer-overlay.open, .photo-pop.open');
     const show = (d)=>{
       ptr.style.transform = `translateY(${d}px)`;
       ptr.style.opacity = String(Math.min(1, d / 45));
