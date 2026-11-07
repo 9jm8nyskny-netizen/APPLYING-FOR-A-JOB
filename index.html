@@ -123,6 +123,17 @@
   .search-box .icon{position:absolute;top:50%;right:14px;transform:translateY(-50%);color:var(--text-muted);pointer-events:none;}
   .role-filter-row{display:flex;flex-direction:column;gap:8px;margin:2px 0 14px;}
   .role-filter-row:empty{display:none;}
+  .role-back-bar{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+    background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:8px 8px 8px 14px;
+    box-shadow:var(--shadow);
+  }
+  .role-back-btn{
+    display:inline-flex;align-items:center;gap:6px;padding:10px 16px;border-radius:10px;border:none;
+    background:var(--primary);color:#fff;font-family:inherit;font-size:0.92rem;font-weight:700;cursor:pointer;
+  }
+  .role-back-btn:hover{filter:brightness(1.08);}
+  .role-back-title{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:1rem;color:var(--text);}
   .role-filter-row .role-chip{
     width:100%;justify-content:space-between;border-radius:12px;padding:12px 16px;
     font-size:0.95rem;text-align:right;box-shadow:var(--shadow);
@@ -1316,25 +1327,28 @@
 
       if(roleList.length === 0){
         roleFilterRow.innerHTML = '';
+      } else if(selectedRole){
+        // Inside a job: hide the job list and show a clear way back to it.
+        roleFilterRow.innerHTML = `
+          <div class="role-back-bar">
+            <button type="button" class="role-back-btn" id="roleBackBtn">→ رجوع للوظائف</button>
+            <div class="role-back-title"><span>${escapeHtml(selectedRole)}</span><span class="role-chip-count">${roleCounts[selectedRole]}</span></div>
+          </div>`;
+        document.getElementById('roleBackBtn').addEventListener('click', goBackToRoles);
       } else {
         roleFilterRow.innerHTML = roleList.map(r => `
-          <button type="button" class="role-chip ${selectedRole === r ? 'active' : ''}" data-role="${escapeHtml(r)}"><span>${escapeHtml(r)}</span><span class="role-chip-count">${roleCounts[r]}</span></button>
+          <button type="button" class="role-chip" data-role="${escapeHtml(r)}"><span>${escapeHtml(r)}</span><span class="role-chip-count">${roleCounts[r]}</span></button>
         `).join('');
         roleFilterRow.querySelectorAll('.role-chip').forEach(chip=>{
-          chip.addEventListener('click', ()=>{
-            const r = chip.dataset.role;
-            selectedRole = (selectedRole === r) ? null : r;
-            render();
-          });
+          chip.addEventListener('click', ()=> openRole(chip.dataset.role));
         });
       }
 
       if(!selectedRole){
-        listEl.innerHTML = `
+        listEl.innerHTML = roleList.length ? '' : `
           <div class="empty-state">
-            <div class="big-icon">👆</div>
-            <h3>اختر مسمى وظيفي من الأعلى</h3>
-            <div>اضغط على أحد المسميات لعرض المتقدمين له</div>
+            <div class="big-icon">🗂️</div>
+            <h3>لا يوجد متقدمون بعد</h3>
           </div>`;
         return;
       }
@@ -1502,6 +1516,32 @@
       btn.addEventListener('click', ()=> openApproveModal(btn.dataset.id));
     });
   }
+
+  function openRole(r){
+    selectedRole = r;
+    searchInput.value = '';
+    try{ history.pushState({role: r}, ''); }catch(e){}
+    render();
+    window.scrollTo({top: 0});
+  }
+  function goBackToRoles(){
+    if(history.state && history.state.role){
+      history.back();               // popstate below clears the job and redraws
+    } else {
+      selectedRole = null;
+      searchInput.value = '';
+      render();
+      window.scrollTo({top: 0});
+    }
+  }
+  window.addEventListener('popstate', (e)=>{
+    const role = (e.state && e.state.role) || null;
+    if(viewMode !== 'active') return;
+    selectedRole = role;
+    searchInput.value = '';
+    render();
+    window.scrollTo({top: 0});
+  });
 
   function resetForm(){
     editingId = null;
