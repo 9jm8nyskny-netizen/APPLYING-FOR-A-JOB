@@ -417,6 +417,7 @@
       <input type="text" id="searchInput" placeholder="ابحث بالاسم أو الوظيفة...">
       <span class="icon">🔍</span>
     </div>
+    <div id="roleBackSlot"></div>
   </header>
   <div class="role-filter-row" id="roleFilterRow"></div>
 
@@ -597,6 +598,7 @@
   const searchInput = document.getElementById('searchInput');
   const optimizeArea = document.getElementById('optimizeArea');
   const roleFilterRow = document.getElementById('roleFilterRow');
+  const roleBackSlot = document.getElementById('roleBackSlot');
   const trashBtn = document.getElementById('trashBtn');
   const trashLabel = document.getElementById('trashLabel');
   const trashCount = document.getElementById('trashCount');
@@ -1296,6 +1298,7 @@
 
     if(viewMode === 'trash'){
       roleFilterRow.innerHTML = '';
+      roleBackSlot.innerHTML = '';
       subtitleCount.textContent = source.length
         ? `${source.length} في المحذوفات`
         : 'سلة المحذوفات فارغة';
@@ -1325,11 +1328,13 @@
       });
       if(selectedRole && !roleCounts[selectedRole]) selectedRole = null;
 
+      roleBackSlot.innerHTML = '';
       if(roleList.length === 0){
         roleFilterRow.innerHTML = '';
       } else if(selectedRole){
-        // Inside a job: hide the job list and show a clear way back to it.
-        roleFilterRow.innerHTML = `
+        // Inside a job: hide the job list and show a clear way back to it (kept in the sticky header).
+        roleFilterRow.innerHTML = '';
+        roleBackSlot.innerHTML = `
           <div class="role-back-bar">
             <button type="button" class="role-back-btn" id="roleBackBtn">→ رجوع للوظائف</button>
             <div class="role-back-title"><span>${escapeHtml(selectedRole)}</span><span class="role-chip-count">${roleCounts[selectedRole]}</span></div>
